@@ -24,7 +24,7 @@ llvm_map_components_to_libnames(LLVM_LIBS all)
 ################################################################################
 # Set up C++ options.
 ################################################################################
-add_compile_options(${LLVM_CXXFLAGS} -std=c++17 -fno-rtti -Werror -Wextra)
+add_compile_options(${LLVM_CXXFLAGS} -std=c++17 -fno-rtti -Wextra)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
