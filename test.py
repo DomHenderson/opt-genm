@@ -16,6 +16,7 @@ GENM_GCC_EXE = shutil.which('genm-gcc')
 MUSL_GCC_EXE = shutil.which('musl-gcc')
 HOST_GCC_EXE = shutil.which('gcc')
 ML_EXE = shutil.which('ocamlopt.byte')
+TIMING_LIB = '/home/dom/Dev/Projects/genm/ocaml/otherlibs/timing/libtiming.a'
 
 
 def run_proc(*args, **kwargs):
@@ -107,6 +108,7 @@ def run_ml_test(path, output_dir):
           '-O2',
           ml_src,
           c_src,
+          TIMING_LIB,
           '-o', genm_lnk
       ],
       cwd=output_dir
