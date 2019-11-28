@@ -24,6 +24,7 @@
 #include "passes/pta.h"
 #include "passes/sccp.h"
 #include "passes/simplify_cfg.h"
+#include "passes/symbolic_evaluation.h"
 #include "passes/vtpta.h"
 #include "stats/alloc_size.h"
 
@@ -108,6 +109,7 @@ static void AddOpt0(PassManager &mngr)
   mngr.Add<MoveElimPass>();
   mngr.Add<DeadCodeElimPass>();
   mngr.Add<SimplifyCfgPass>();
+  mngr.Add<SymbolicEvaluation>();
 }
 
 // -----------------------------------------------------------------------------
@@ -124,6 +126,7 @@ static void AddOpt1(PassManager &mngr)
   mngr.Add<DeadCodeElimPass>();
   mngr.Add<SimplifyCfgPass>();
   mngr.Add<DeadFuncElimPass>();
+  mngr.Add<SymbolicEvaluation>();
 }
 
 // -----------------------------------------------------------------------------
@@ -141,6 +144,7 @@ static void AddOpt2(PassManager &mngr)
   mngr.Add<DeadCodeElimPass>();
   mngr.Add<PointsToAnalysis>();
   mngr.Add<DeadFuncElimPass>();
+  mngr.Add<SymbolicEvaluation>();
 }
 
 // -----------------------------------------------------------------------------
@@ -159,6 +163,7 @@ static void AddOpt3(PassManager &mngr)
   mngr.Add<DeadCodeElimPass>();
   //mngr.Add<PointsToAnalysis>();
   mngr.Add<DeadFuncElimPass>();
+  mngr.Add<SymbolicEvaluation>();
 }
 
 // -----------------------------------------------------------------------------
@@ -220,6 +225,7 @@ int main(int argc, char **argv)
       registry.Register<SCCPPass>();
       registry.Register<SimplifyCfgPass>();
       registry.Register<AllocSizePass>();
+      registry.Register<SymbolicEvaluation>();
 
       // Set up the pipeline.
       PassManager passMngr(kVerbose, kTime);
