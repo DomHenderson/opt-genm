@@ -5,29 +5,22 @@
 class SymValue {
 public:
     enum class Kind {
-        ARG,
         BOOL,
         INT,
         FLOAT,
         FUNCREF,
+        ATOM,
         UNKNOWN
     };
 
     virtual Kind get_kind() const = 0;
 };
 
-class ArgSymValue : public SymValue {
-public:
-    ArgSymValue(unsigned id): id(id) {}
-    Kind get_kind() const override { return Kind::ARG; }
-private:
-    const unsigned id;
-};
-
 class BoolSymValue: public SymValue {
 public:
     BoolSymValue(bool b): b(b) {}
     Kind get_kind() const override { return Kind::BOOL; }
+    bool get_value() const { return b; }
 private:
     const bool b;
 };
@@ -36,7 +29,9 @@ class FloatSymValue: public SymValue {
 public:
     FloatSymValue(float f): val(f) {}
     Kind get_kind() const override { return Kind::FLOAT; }
+    float get_value() const { return val; }
 private:
+    // llvm::APFloat
     const float val;
 };
 
@@ -53,7 +48,9 @@ class IntSymValue: public SymValue {
     public:
     IntSymValue(int value): val(value) {}
     Kind get_kind() const override { return Kind::INT; }
+    int get_value() const { return val; }
 private:
+    // llvm::APInt, llvm:APSInt
     const int val;
 };
 
@@ -62,3 +59,8 @@ public:
     UnknownSymValue() {}
     Kind get_kind() const override { return Kind::UNKNOWN; }
 };
+
+class AtomSymValue {
+    Atom *atom;
+    usigned Offset;
+}

@@ -1,30 +1,20 @@
 #pragma once
 
+#include <optional>
 #include <stack>
 #include <unordered_map>
 #include <vector>
 
 #include "core/inst.h"
+#include "location.h"
 #include "symvalue.h"
 
-class Frame {
-public:
-    Frame(unsigned arg_base, Inst *callee): arg_base(arg_base), callee(callee) {}
-    unsigned get_arg_base() const { return arg_base; }
-    Inst *get_callee() const { return callee; }
-private:
-    unsigned arg_base;
-    Inst *callee;
-};
-
-class Stack {
-public:
-    void push_frame(std::vector<SymValue*> new_args, Inst *calle = nullptr);
-    void pop_frame();
-    Frame &top_frame();
-
-    unsigned get_local_arg(unsigned id);
-private:
+struct Frame {
+    Frame(std::vector<SymValue*> args): args(args) {}
     std::vector<SymValue*> args;
-    std::stack<Frame> stack;
+    Frame *previous;
+    // COMMENT!!!!!!!!!
+    Inst *return_addr;
+    // return_addr->getParent()
+    std::optional<Location> resume_location = std::nullopt;
 };

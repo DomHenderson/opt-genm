@@ -3,6 +3,8 @@
 # (C) 2018 Nandor Licker. All rights reserved.
 
 add_library(passes
+    symbolic_evaluation/flowgraph.cpp
+
     pta/graph.cpp
     pta/node.cpp
     pta/scc.cpp
@@ -23,4 +25,5 @@ add_library(passes
     sccp.cpp
     simplify_cfg.cpp
     vtpta.cpp
+    symbolic_evaluation.cpp
 )

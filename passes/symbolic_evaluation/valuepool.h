@@ -8,8 +8,8 @@
 
 class ValuePool {
 public:
-    void persist_value(std::unique_ptr<SymValue> value) {
-        pool.insert(std::move(value));
+    void persist(SymValue* value) {
+        pool.insert(std::unique_ptr<SymValue>(value));
     }
 private:
     std::unordered_set<std::unique_ptr<SymValue>> pool;

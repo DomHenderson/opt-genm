@@ -5,24 +5,25 @@
 
 #include <llvm/ADT/ilist.h>
 
+#include "core/block.h"
+#include "core/func.h"
 #include "core/inst.h"
+#include "location.h"
 #include "symvalue.h"
 
 class Frame;
 
-class FlowNode {
-private:
+struct FlowNode {
     using inst_iterator = llvm::ilist<Inst>::iterator;
+    using block_iterator = llvm::ilist<Block>::iterator;
+    using func_iterator = llvm::ilist<Func>::iterator;
 
-public:
-    FlowNode(inst_iterator startInst) : program_counter(startInst) {}
-    Inst *get_current_inst();
+    FlowNode() {}
 
     void AllocateResult(Inst *inst, SymValue *value);
-    SymValue *GetResult(Inst* inst);
+    SymValue *GetResult(Inst *inst);
 
-private:
-    inst_iterator program_counter;
+    Location location;
 
     FlowNode *previousNode;
 
@@ -30,4 +31,10 @@ private:
 
     std::unordered_map<Inst*,unsigned> reg_allocs;
     std::vector<SymValue*> values;
+
+    SymValue *Load(SymValue *loc) {std::cout<<"Load undefined"<<std::endl;}
+    void Store(SymValue *addr, SymValue *value) {std::cout<<"Store undefined"<<std::endl;}
+    std::vector<std::pair<SymValue*, SymValue*>> stores;
+
+    std::string_view name;
 };
