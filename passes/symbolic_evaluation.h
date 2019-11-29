@@ -10,7 +10,10 @@
 #include "core/insts_const.h"
 #include "core/pass.h"
 #include "core/pass_manager.h"
+#include "symbolic_evaluation/flowgraph.h"
 #include "symbolic_evaluation/stack.h"
+
+class SymValue;
 
 class SymbolicEvaluation final : public Pass {
 public:

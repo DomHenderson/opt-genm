@@ -2,19 +2,21 @@
 #include <vector>
 
 #include "stack.h"
+#include "symvalue.h"
 
-void Stack::push_frame(std::vector<SymValue*> new_args)
+void Stack::push_frame(std::vector<SymValue*> new_args, Inst *callee)
 {
     std::cout<<"Pushing new frame"<<std::endl;
     unsigned arg_base = args.size();
     std::cout<<"Arg_base "<<arg_base<<std::endl;
     args.insert(args.end(), new_args.begin(), new_args.end());
     std::cout<<"New args size "<<args.size()<<std::endl;
-    stack.push(Frame(arg_base));
+    stack.push(Frame(arg_base, callee));
 }
 
 void Stack::pop_frame()
 {
+
     std::cout<<"Popping frame"<<std::endl;
     stack.pop();
 }

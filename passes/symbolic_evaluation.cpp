@@ -20,6 +20,7 @@
 #include "core/value.h"
 #include "passes/symbolic_evaluation.h"
 #include "symbolic_evaluation/stack.h"
+#include "symbolic_evaluation/symvalue.h"
 
 const char *SymbolicEvaluation::kPassID = "symbolic_evaluation";
 
@@ -440,7 +441,7 @@ void SymbolicEvaluation::Ret(ReturnInst *returnInst)
 {
     AllocateResult(
         returnInst,
-        returnInst->GetValue
+        std::make_unique<SymValue>(*GetResult(returnInst->GetValue()))
     );
 }
 
