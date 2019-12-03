@@ -54,6 +54,7 @@ private:
     FlowNode *CreateReturnFlowNode(FlowNode *previous);
     FlowNode *CreateBlockFlowNode(Block_iterator block, FlowNode *previous);
     FlowNode *CreateFunctionFlowNode(Func_iterator func, std::vector<SymValue*> args, Inst *return_addr, std::optional<Location> resume_location, FlowNode *previous);
+    RootNode *CreateRootNode();
     std::vector<SymValue*> CreateUnknownArgsVector(unsigned size);
 
     Prog *prog;

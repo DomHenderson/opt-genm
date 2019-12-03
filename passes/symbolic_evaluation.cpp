@@ -44,30 +44,19 @@ void SymbolicEvaluation::Run(Prog *program)
 
     // ---------------------------------------------------------------
     prog = program;
-    // auto startFunc = prog->begin();
     std::cout<<"Starting"<<std::endl;
-    auto startFunc = FindFuncByName("caml_program", prog);
-    auto argCount = startFunc->params().size();
-    std::cout<<"argCount: "<<argCount<<std::endl;
-    //RunFunction(&*startFunc, std::vector<SymValue*>(argCount, results[0].get()), prog);
-    frontier.push(CreateFunctionFlowNode(
-        startFunc,
-        CreateUnknownArgsVector(argCount),
-        nullptr,
-        std::nullopt,
-        nullptr
-    ));
+    frontier.push(CreateRootNode());
 
-    // while(!frontier.empty() && count < limit) {
-    //     FlowNode *node = frontier.front();
-    //     frontier.pop();
-    //     std::cout<<"Stepping node "<<node->name<<std::endl;
-    //     StepNode(node);
-    // }
+    while(!frontier.empty() && count < limit) {
+        FlowNode *node = frontier.front();
+        frontier.pop();
+        std::cout<<"Stepping node "<<node->name<<std::endl;
+        StepNode(node);
+    }
 
-    // if(!frontier.empty()) {
-    //     std::cout<<"Finished early"<<std::endl;
-    // }
+    if(!frontier.empty()) {
+        std::cout<<"Finished early"<<std::endl;
+    }
 }
 
 void SymbolicEvaluation::StepNode(FlowNode *node)
@@ -143,6 +132,27 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::RunInst(Inst &inst, FlowNode *
 
 
 // -----------------------------------------------------------------------------
+RootNode *SymbolicEvaluation::CreateRootNode()
+{
+    auto startFunc = FindFuncByName("caml_program", prog);
+    auto argCount = startFunc->params().size();
+    std::cout<<"argCount: "<<argCount<<std::endl;
+
+    RootNode *root = new RootNode();
+    root->location.func = startFunc;
+    root->location.block = startFunc->begin();
+    root->location.inst = startFunc->begin()->begin();
+
+    auto args = CreateUnknownArgsVector(argCount);
+    Frame *frame = new Frame(args);
+    frame->previous = nullptr;
+    frame->return_addr = nullptr;
+    root->currentFrame = frame;
+
+    root->name = startFunc->GetName();
+    return root;
+}
+
 FlowNode *SymbolicEvaluation::CreateTailCallFlowNode(
     Func_iterator func,
     std::vector<SymValue*> args,
@@ -207,7 +217,6 @@ FlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
     std::optional<Location> resume_location,
     FlowNode *previous
 ) {
-    int i = 0;
     FlowNode *newNode = new FlowNode();
     newNode->previousNode = previous;
     newNode->location.func = func;

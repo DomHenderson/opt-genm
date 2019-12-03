@@ -33,9 +33,17 @@ struct FlowNode {
     std::unordered_map<Inst*,unsigned> reg_allocs;
     std::vector<SymValue*> values;
 
-    SymValue *Load(SymValue *loc) {std::cout<<"Load undefined"<<std::endl; return nullptr; }
-    void Store(SymValue *addr, SymValue *value) {std::cout<<"Store undefined"<<std::endl;}
+    virtual SymValue *Load(SymValue *loc);
+    virtual void Store(SymValue *addr, SymValue *value);
     std::vector<std::pair<SymValue*, SymValue*>> stores;
 
     std::string_view name;
+};
+
+class Heap;
+
+struct RootNode : public FlowNode {
+    virtual SymValue *Load(SymValue *loc) override;
+    virtual void Store(SymValue *addr, SymValue *value) override;
+    Heap *heap;
 };
