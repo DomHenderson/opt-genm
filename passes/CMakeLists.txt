@@ -3,7 +3,7 @@
 # (C) 2018 Nandor Licker. All rights reserved.
 
 add_library(passes
-    symbolic_evaluation/flowgraph.cpp
+    symbolic_evaluation/flownode.cpp
     symbolic_evaluation/symvaluecomp.cpp
 
     pta/graph.cpp

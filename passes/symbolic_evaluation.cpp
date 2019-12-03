@@ -19,7 +19,7 @@
 #include "core/prog.h"
 #include "core/value.h"
 #include "passes/symbolic_evaluation.h"
-#include "symbolic_evaluation/stack.h"
+#include "symbolic_evaluation/frame.h"
 #include "symbolic_evaluation/symvalue.h"
 #include "symbolic_evaluation/symvaluecomp.h"
 

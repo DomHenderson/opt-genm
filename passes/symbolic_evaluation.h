@@ -11,9 +11,9 @@
 #include "core/insts_const.h"
 #include "core/pass.h"
 #include "core/pass_manager.h"
-#include "symbolic_evaluation/flowgraph.h"
+#include "symbolic_evaluation/flownode.h"
 #include "symbolic_evaluation/location.h"
-#include "symbolic_evaluation/stack.h"
+#include "symbolic_evaluation/frame.h"
 #include "symbolic_evaluation/valuepool.h"
 
 class SymValue;

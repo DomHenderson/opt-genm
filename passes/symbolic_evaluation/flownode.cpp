@@ -1,4 +1,4 @@
-#include "flowgraph.h"
+#include "flownode.h"
 
 void FlowNode::AllocateResult(Inst *inst, SymValue *value)
 {
