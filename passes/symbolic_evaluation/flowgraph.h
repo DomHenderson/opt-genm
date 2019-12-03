@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <unordered_map>
 #include <vector>
 
@@ -32,7 +33,7 @@ struct FlowNode {
     std::unordered_map<Inst*,unsigned> reg_allocs;
     std::vector<SymValue*> values;
 
-    SymValue *Load(SymValue *loc) {std::cout<<"Load undefined"<<std::endl;}
+    SymValue *Load(SymValue *loc) {std::cout<<"Load undefined"<<std::endl; return nullptr; }
     void Store(SymValue *addr, SymValue *value) {std::cout<<"Store undefined"<<std::endl;}
     std::vector<std::pair<SymValue*, SymValue*>> stores;
 

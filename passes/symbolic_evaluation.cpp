@@ -21,132 +21,11 @@
 #include "passes/symbolic_evaluation.h"
 #include "symbolic_evaluation/stack.h"
 #include "symbolic_evaluation/symvalue.h"
+#include "symbolic_evaluation/symvaluecomp.h"
 
 
 llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 std::string toString(Inst::Kind k);
-
-
-// -----------------------------------------------------------------------------
-SymValue *Invert(SymValue *v)
-{
-    if(v->get_kind() == SymValue::Kind::BOOL) {
-        auto b = static_cast<BoolSymValue*>(v);
-        delete v;
-        return new BoolSymValue(!b->get_value());
-    } else { //eq is unknown
-        return v;
-    }
-}
-
-SymValue *EQ(SymValue *lv, SymValue *rv)
-{
-    if ( lv == rv ) {
-        return new BoolSymValue(true);
-    } else if (lv->get_kind() == rv->get_kind()) {
-        switch(lv->get_kind()) {
-        case SymValue::Kind::BOOL: {
-            auto l = static_cast<BoolSymValue*>(lv);
-            auto r = static_cast<BoolSymValue*>(rv);
-            return new BoolSymValue(l->get_value() == r->get_value());
-        }
-
-        case SymValue::Kind::FLOAT: {
-            auto l = static_cast<FloatSymValue*>(lv);
-            auto r = static_cast<FloatSymValue*>(rv);
-            return new BoolSymValue(l->get_value() == r->get_value());
-        }
-
-        case SymValue::Kind::FUNCREF: {
-            auto l = static_cast<FuncRefSymValue*>(lv);
-            auto r = static_cast<FuncRefSymValue*>(rv);
-            return new BoolSymValue(l->get_name() == r->get_name());
-        }
-
-        case SymValue::Kind::INT: {
-            auto l = static_cast<IntSymValue*>(lv);
-            auto r = static_cast<IntSymValue*>(rv);
-            return new BoolSymValue(l->get_value() == r->get_value());
-        }
-
-        case SymValue::Kind::UNKNOWN:
-            return new UnknownSymValue();
-        }
-    } else {
-        return new UnknownSymValue();
-    }
-}
-
-SymValue *NEQ(SymValue *lv, SymValue *rv)
-{
-    return Invert(EQ(lv, rv));
-}
-
-SymValue *LT(SymValue* lv, SymValue *rv)
-{
-    if ( lv == rv ) {
-        return new BoolSymValue(false);
-    } else if (lv->get_kind() == rv->get_kind()) {
-        switch(lv->get_kind()) {
-        case SymValue::Kind::FLOAT: {
-            auto l = static_cast<FloatSymValue*>(lv);
-            auto r = static_cast<FloatSymValue*>(rv);
-            return new BoolSymValue(l->get_value() < r->get_value());
-        }
-
-        case SymValue::Kind::INT: {
-            auto l = static_cast<IntSymValue*>(lv);
-            auto r = static_cast<IntSymValue*>(rv);
-            return new BoolSymValue(l->get_value() < r->get_value());
-        }
-
-        case SymValue::Kind::BOOL:
-        case SymValue::Kind::FUNCREF:
-        case SymValue::Kind::UNKNOWN:
-            return new UnknownSymValue();
-        }
-    } else {
-        return new UnknownSymValue();
-    }
-}
-
-SymValue *GT(SymValue *lv, SymValue *rv)
-{
-    if ( lv == rv ) {
-        return new BoolSymValue(false);
-    } else if (lv->get_kind() == rv->get_kind()) {
-        switch(lv->get_kind()) {
-        case SymValue::Kind::FLOAT: {
-            auto l = static_cast<FloatSymValue*>(lv);
-            auto r = static_cast<FloatSymValue*>(rv);
-            return new BoolSymValue(l->get_value() > r->get_value());
-        }
-
-        case SymValue::Kind::INT: {
-            auto l = static_cast<IntSymValue*>(lv);
-            auto r = static_cast<IntSymValue*>(rv);
-            return new BoolSymValue(l->get_value() > r->get_value());
-        }
-
-        case SymValue::Kind::BOOL:
-        case SymValue::Kind::FUNCREF:
-        case SymValue::Kind::UNKNOWN:
-            return new UnknownSymValue();
-        }
-    } else {
-        return new UnknownSymValue();
-    }
-}
-
-SymValue *LE(SymValue *lv, SymValue *rv)
-{
-    return Invert(GT(lv, rv));
-}
-
-SymValue *GE(SymValue *lv, SymValue *rv)
-{
-    return Invert(LT(lv, rv));
-}
 
 
 // -----------------------------------------------------------------------------
@@ -346,8 +225,9 @@ FlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
     return newNode;
 }
 
-std::vector<SymValue*> SymbolicEvaluation::CreateUnknownArgsVector(unsigned size)
-{
+std::vector<SymValue*> SymbolicEvaluation::CreateUnknownArgsVector(
+    unsigned size
+) {
     std::vector<SymValue*> result;
     result.reserve(size);
     for(unsigned i = 0; i < size; ++i) {
@@ -459,32 +339,32 @@ void SymbolicEvaluation::Cmp(CmpInst *cmpInst, FlowNode *node)
     switch(c) {
     case Cond::EQ:
         std::cout<<"Comparing EQ"<<std::endl;
-        result = EQ(lv, rv);
+        result = SymComp::EQ(lv, rv);
         break;
     
     case Cond::NE:
         std::cout<<"Comparing NE"<<std::endl;
-        result = NEQ(lv, rv);
+        result = SymComp::NEQ(lv, rv);
         break;
     
     case Cond::LT:
         std::cout<<"Comparing LT"<<std::endl;
-        result = LT(lv, rv);
+        result = SymComp::LT(lv, rv);
         break;
     
     case Cond::GT:
         std::cout<<"Comparing GT"<<std::endl;
-        result = GT(lv, rv);
+        result = SymComp::GT(lv, rv);
         break;
     
     case Cond::LE:
         std::cout<<"Comparing LE"<<std::endl;
-        result = LE(lv, rv);
+        result = SymComp::LE(lv, rv);
         break;
     
     case Cond::GE:
         std::cout<<"Comparing GE"<<std::endl;
-        result = GE(lv, rv);
+        result = SymComp::GE(lv, rv);
         break;
     
     default:

@@ -60,7 +60,7 @@ public:
     Kind get_kind() const override { return Kind::UNKNOWN; }
 };
 
-class AtomSymValue {
-    Atom *atom;
-    usigned Offset;
-}
+// class AtomSymValue {
+//     Atom *atom;
+//     unsigned offset;
+// }

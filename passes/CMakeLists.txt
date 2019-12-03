@@ -4,6 +4,7 @@
 
 add_library(passes
     symbolic_evaluation/flowgraph.cpp
+    symbolic_evaluation/symvaluecomp.cpp
 
     pta/graph.cpp
     pta/node.cpp
