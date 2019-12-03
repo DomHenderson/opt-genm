@@ -58,16 +58,16 @@ void SymbolicEvaluation::Run(Prog *program)
         nullptr
     ));
 
-    while(!frontier.empty() && count < limit) {
-        FlowNode *node = frontier.front();
-        frontier.pop();
-        std::cout<<"Stepping node "<<node->name<<std::endl;
-        StepNode(node);
-    }
+    // while(!frontier.empty() && count < limit) {
+    //     FlowNode *node = frontier.front();
+    //     frontier.pop();
+    //     std::cout<<"Stepping node "<<node->name<<std::endl;
+    //     StepNode(node);
+    // }
 
-    if(!frontier.empty()) {
-        std::cout<<"Finished early"<<std::endl;
-    }
+    // if(!frontier.empty()) {
+    //     std::cout<<"Finished early"<<std::endl;
+    // }
 }
 
 void SymbolicEvaluation::StepNode(FlowNode *node)
@@ -207,6 +207,7 @@ FlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
     std::optional<Location> resume_location,
     FlowNode *previous
 ) {
+    int i = 0;
     FlowNode *newNode = new FlowNode();
     newNode->previousNode = previous;
     newNode->location.func = func;
@@ -214,14 +215,17 @@ FlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
     newNode->location.inst = func->begin()->begin();
 
     Frame *newFrame = new Frame(args);
-    newFrame->previous = previous->currentFrame;
+    newFrame->previous = previous == nullptr 
+        ? nullptr
+        : previous->currentFrame;
     newFrame->return_addr = return_addr;
     newNode->currentFrame = newFrame;
 
-    previous->currentFrame->resume_location = resume_location;
+    if(previous != nullptr ) {
+        previous->currentFrame->resume_location = resume_location;
+    }
 
     newNode->name = func->GetName();
-
     return newNode;
 }
 
