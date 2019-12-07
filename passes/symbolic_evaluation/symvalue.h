@@ -2,18 +2,32 @@
 
 #include <string_view>
 
+#include <llvm/ADT/StringRef.h>
+
 class SymValue {
 public:
     enum class Kind {
+        ADDR,
         BOOL,
-        INT,
         FLOAT,
         FUNCREF,
-        ATOM,
+        INT,
+        STR,
         UNKNOWN
     };
 
     virtual Kind get_kind() const = 0;
+};
+
+class AddrSymValue: public SymValue {
+public:
+    AddrSymValue(std::string_view atomName, int offset): name(atomName), offset(offset) {}
+    Kind get_kind() const override { return Kind::ADDR; }
+    std::string_view get_name() { return name; }
+    int get_offset() { return offset; }
+private:
+    std::string_view name;
+    int offset;
 };
 
 class BoolSymValue: public SymValue {
@@ -45,7 +59,7 @@ private:
 };
 
 class IntSymValue: public SymValue {
-    public:
+public:
     IntSymValue(int value): val(value) {}
     Kind get_kind() const override { return Kind::INT; }
     int get_value() const { return val; }
@@ -54,13 +68,17 @@ private:
     const int val;
 };
 
-class UnknownSymValue : public SymValue {
+class StringSymValue: public SymValue {
+public:
+    StringSymValue(llvm::StringRef str): str(str) {}
+    Kind get_kind() const override { return Kind::STR; }
+    llvm::StringRef get_string() { return str; }
+private:
+    llvm::StringRef str;
+};
+
+class UnknownSymValue: public SymValue {
 public:
     UnknownSymValue() {}
     Kind get_kind() const override { return Kind::UNKNOWN; }
 };
-
-// class AtomSymValue {
-//     Atom *atom;
-//     unsigned offset;
-// }

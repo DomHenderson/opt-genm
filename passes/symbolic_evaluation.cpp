@@ -5,10 +5,13 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
+#include "core/atom.h"
 #include "core/block.h"
 #include "core/constant.h"
+#include "core/data.h"
 #include "core/func.h"
 #include "core/global.h"
 #include "core/inst.h"
@@ -20,12 +23,15 @@
 #include "core/value.h"
 #include "passes/symbolic_evaluation.h"
 #include "symbolic_evaluation/frame.h"
+#include "symbolic_evaluation/storagepool.h"
 #include "symbolic_evaluation/symvalue.h"
 #include "symbolic_evaluation/symvaluecomp.h"
 
 
 llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 std::string toString(Inst::Kind k);
+void PrintCodeInfo(Prog *prog);
+void PrintDataInfo(Prog *prog);
 
 
 // -----------------------------------------------------------------------------
@@ -40,17 +46,18 @@ const char *SymbolicEvaluation::GetPassName() const
 
 void SymbolicEvaluation::Run(Prog *program)
 {
-    // PrintLearningInfo(prog);
+    PrintCodeInfo(program);
 
     // ---------------------------------------------------------------
     prog = program;
     std::cout<<"Starting"<<std::endl;
     frontier.push(CreateRootNode());
+    std::cout<<"Done"<<std::endl;
 
     while(!frontier.empty() && count < limit) {
         FlowNode *node = frontier.front();
         frontier.pop();
-        std::cout<<"Stepping node "<<node->name<<std::endl;
+        std::cout<<"Stepping node "<<node->get_name()<<std::endl;
         StepNode(node);
     }
 
@@ -61,32 +68,40 @@ void SymbolicEvaluation::Run(Prog *program)
 
 void SymbolicEvaluation::StepNode(FlowNode *node)
 {
-    auto inst = node->location.inst;
-    auto block = node->location.block;
-    auto func = node->location.func;
-    std::unordered_set<FlowNode*> next;
+    auto inst = node->get_starting_inst();
+    auto block = node->get_block();
+    auto func = node->get_func();
+    std::optional<std::unordered_set<FlowNode*>> next;
 
-    while(inst != block->end() && next.empty()) {
+    while(inst != block->end() && next == std::nullopt) {
         next = RunInst(*inst, node);
         ++inst;
     }
 
-    for(auto n: next) {
-        frontier.push(n);
+    if(next != std::nullopt) {
+        auto nextNodes = next.value();
+        for(auto n: nextNodes) {
+            frontier.push(n);
+        }
     }
 
     ++count;
 }
 
-std::unordered_set<FlowNode*> SymbolicEvaluation::RunInst(Inst &inst, FlowNode *node)
-{
-    std::unordered_set<FlowNode*> emptySet;
-
+std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
+    Inst &inst,
+    FlowNode *node
+) {
     switch(inst.GetKind()) {
+    case Inst::Kind::ADD:
+        std::cout<<"Running add"<<std::endl;
+        Add(static_cast<AddInst*>(&inst), node);
+        return std::nullopt;
+
     case Inst::Kind::ARG:
         std::cout<<"Running arg"<<std::endl;
         Arg(static_cast<ArgInst*>(&inst), node);
-        return emptySet;
+        return std::nullopt;
     
     case Inst::Kind::CALL: 
         std::cout<<"Running call"<<std::endl;
@@ -95,7 +110,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::RunInst(Inst &inst, FlowNode *
     case Inst::Kind::CMP:
         std::cout<<"Running cmp"<<std::endl;
         Cmp(static_cast<CmpInst*>(&inst), node);
-        return emptySet;
+        return std::nullopt;
     
     case Inst::Kind::JCC:
         std::cout<<"Running jcc"<<std::endl;
@@ -104,12 +119,12 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::RunInst(Inst &inst, FlowNode *
     case Inst::Kind::LD:
         std::cout<<"Running load"<<std::endl;
         Load(static_cast<LoadInst*>(&inst), node);
-        return emptySet;
+        return std::nullopt;
 
     case Inst::Kind::MOV:
         std::cout<<"Running mov"<<std::endl;
         Mov(static_cast<MovInst*>(&inst), node);
-        return emptySet;
+        return std::nullopt;
 
     case Inst::Kind::RET:
         std::cout<<"Running ret"<<std::endl;
@@ -118,7 +133,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::RunInst(Inst &inst, FlowNode *
     case Inst::Kind::ST:
         std::cout<<"Running store"<<std::endl;
         Store(static_cast<StoreInst*>(&inst), node);
-        return emptySet;
+        return std::nullopt;
 
     case Inst::Kind::TCALL:
         std::cout<<"Running tail call"<<std::endl;
@@ -126,116 +141,67 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::RunInst(Inst &inst, FlowNode *
 
     default:
         std::cout<<"Skipping"<<std::endl;
-        return emptySet;
+        return std::nullopt;
     }
 }
 
+//-----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
-RootNode *SymbolicEvaluation::CreateRootNode()
+RootFlowNode *SymbolicEvaluation::CreateRootNode()
 {
+    PrintDataInfo(prog);
     auto startFunc = FindFuncByName("caml_program", prog);
-    auto argCount = startFunc->params().size();
-    std::cout<<"argCount: "<<argCount<<std::endl;
-
-    RootNode *root = new RootNode();
-    root->location.func = startFunc;
-    root->location.block = startFunc->begin();
-    root->location.inst = startFunc->begin()->begin();
-
-    auto args = CreateUnknownArgsVector(argCount);
-    Frame *frame = new Frame(args);
-    frame->previous = nullptr;
-    frame->return_addr = nullptr;
-    root->currentFrame = frame;
-
-    root->name = startFunc->GetName();
-    return root;
-}
-
-FlowNode *SymbolicEvaluation::CreateTailCallFlowNode(
-    Func_iterator func,
-    std::vector<SymValue*> args,
-    FlowNode *previous
-) {
-    FlowNode *newNode = new FlowNode();
-    newNode->previousNode = previous;
-    newNode->location.func = func;
-    newNode->location.block = func->begin();
-    newNode->location.inst = func->begin()->begin();
-
-    Frame *newFrame = new Frame(args);
-    newFrame->previous = previous->currentFrame->previous;
-    newFrame->return_addr = previous->currentFrame->return_addr;
-    newNode->currentFrame = newFrame;
-
-    newNode->name = func->GetName();
-
-    return newNode;
-}
-
-FlowNode *SymbolicEvaluation::CreateReturnFlowNode(
-    FlowNode *previous
-) {
-    FlowNode *newNode = new FlowNode();
-    newNode->previousNode = previous;
-    newNode->currentFrame = previous->currentFrame->previous;
-    
-    if(newNode->currentFrame->resume_location.has_value() ) {
-        newNode->location = newNode->currentFrame->resume_location.value();
-    } else {
-        std::cout<<"No return location to return to"<<std::endl;
+    if(startFunc == prog->end()) {
+        std::cout<<"Failed to create root node"<<std::endl;
         return nullptr;
     }
 
-    newNode->name = newNode->location.func->GetName();
-
-    return newNode;
+    return storagePool.persist(
+        new RootFlowNode(*startFunc, *prog, storagePool)
+    );
 }
 
-FlowNode *SymbolicEvaluation::CreateBlockFlowNode(
+SuccessorFlowNode *SymbolicEvaluation::CreateTailCallFlowNode(
+    Func_iterator func,
+    std::vector<SymValue*> args,
+    FlowNode *previous
+) {
+    return storagePool.persist(
+        previous->CreateTailCallNode(
+            *func,
+            args,
+            storagePool
+        )
+    );
+}
+
+SuccessorFlowNode *SymbolicEvaluation::CreateReturnFlowNode(
+    FlowNode *previous
+) {
+    return storagePool.persist(previous->CreateReturnNode());
+}
+
+SuccessorFlowNode *SymbolicEvaluation::CreateBlockFlowNode(
     Block_iterator block,
     FlowNode *previous
 ) {
-    FlowNode *newNode = new FlowNode();
-    newNode->previousNode = previous;
-    newNode->location.func = block->getParent()->getIterator();
-    newNode->location.block = block;
-    newNode->location.inst = block->begin();
-
-    newNode->currentFrame = previous->currentFrame;
-
-    newNode->name = block->GetName();
-
-    return newNode;
+    return storagePool.persist(previous->CreateBlockNode(*block));
 }
 
-FlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
+SuccessorFlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
     Func_iterator func,
     std::vector<SymValue*> args,
-    Inst *return_addr,
-    std::optional<Location> resume_location,
+    Inst_iterator caller,
     FlowNode *previous
 ) {
-    FlowNode *newNode = new FlowNode();
-    newNode->previousNode = previous;
-    newNode->location.func = func;
-    newNode->location.block = func->begin();
-    newNode->location.inst = func->begin()->begin();
-
-    Frame *newFrame = new Frame(args);
-    newFrame->previous = previous == nullptr 
-        ? nullptr
-        : previous->currentFrame;
-    newFrame->return_addr = return_addr;
-    newNode->currentFrame = newFrame;
-
-    if(previous != nullptr ) {
-        previous->currentFrame->resume_location = resume_location;
-    }
-
-    newNode->name = func->GetName();
-    return newNode;
+    return storagePool.persist(
+        previous->CreateFunctionNode(
+            *func,
+            args,
+            caller,
+            storagePool
+        )
+    );
 }
 
 std::vector<SymValue*> SymbolicEvaluation::CreateUnknownArgsVector(
@@ -245,7 +211,7 @@ std::vector<SymValue*> SymbolicEvaluation::CreateUnknownArgsVector(
     result.reserve(size);
     for(unsigned i = 0; i < size; ++i) {
         SymValue *value = new UnknownSymValue();
-        valuePool.persist(value);
+        storagePool.persist(value);
         result.push_back(value);
     }
     return result;
@@ -270,46 +236,82 @@ llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog)
 
 
 // -----------------------------------------------------------------------------
-void SymbolicEvaluation::Arg(ArgInst *argInst, FlowNode *node)
-{
+
+void SymbolicEvaluation::Add(
+    AddInst *addInst,
+    FlowNode *node
+) {
+    SymValue *LHS = node->GetResult(addInst->GetLHS());
+    SymValue *RHS = node->GetResult(addInst->GetRHS());
+
+    SymValue *result;
+
+    switch(LHS->get_kind()) {
+    case SymValue::Kind::ADDR: {
+        AddrSymValue *laddr = static_cast<AddrSymValue*>(LHS);
+        switch(RHS->get_kind()) {
+        case SymValue::Kind::INT: {
+            IntSymValue *rint = static_cast<IntSymValue*>(RHS);
+            result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value());
+        } break;
+        default:
+            std::cout<<"Adding ADDR and not INT"<<std::endl;
+            result = new UnknownSymValue();
+            break;
+        }
+    } break;
+    case SymValue::Kind::INT: {
+        IntSymValue *lint = static_cast<IntSymValue*>(LHS);
+        switch(RHS->get_kind()) {
+        case SymValue::Kind::ADDR: {
+            AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
+            result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value());
+        } break;
+        case SymValue::Kind::INT: {
+            IntSymValue *rint = static_cast<IntSymValue*>(RHS);
+            result = new IntSymValue(lint->get_value()+rint->get_value());
+        } break;
+        default:
+            std::cout<<"Adding INT and not ADDR or INT"<<std::endl;
+            result = new UnknownSymValue();
+            break;
+        }
+    } break;
+    default:
+        std::cout<<"Adding unimplemented combination"<<std::endl;
+        result = new UnknownSymValue();
+        break;
+    }
+
+    storagePool.persist(result);
+    node->AllocateResult(addInst, result);
+}
+
+void SymbolicEvaluation::Arg(
+    ArgInst *argInst,
+    FlowNode *node
+) {
     unsigned int idx = argInst->GetIdx();
 
     node->AllocateResult(
         argInst,
-        node->currentFrame->args[idx]
+        node->get_frame().get_arg(idx)
     );
 }
 
-std::unordered_set<FlowNode*> SymbolicEvaluation::Call(CallInst *callInst, FlowNode *node)
-{
+std::unordered_set<FlowNode*> SymbolicEvaluation::Call(
+    CallInst *callInst,
+    FlowNode *node
+) {
     SymValue *v = node->GetResult(callInst->GetCallee());
 
     if ( v == nullptr || v->get_kind() != SymValue::Kind::FUNCREF ) {
         std::cout<<"Called something that isn't a func ref"<<std::endl;
-        SymValue* unknown = new UnknownSymValue();
-        valuePool.persist(unknown);
-        node->AllocateResult(
-            callInst,
-            unknown
-        );
+        node->AllocateResult(callInst,storagePool.persist(new UnknownSymValue()));
         return std::unordered_set<FlowNode*>();
     }
 
-    FuncRefSymValue *fvp = (FuncRefSymValue*)v;
-    std::string_view name = fvp->get_name();
-
-    auto func = FindFuncByName(name, prog);
-
-    if ( func == prog->end() ) {
-        std::cout<<"No function with name " << name << " found"<<std::endl;
-        SymValue* unknown = new UnknownSymValue();
-        valuePool.persist(unknown);
-        node->AllocateResult(
-            callInst,
-            unknown
-        );
-        return std::unordered_set<FlowNode*>();
-    }
+    FuncRefSymValue *funcRef = static_cast<FuncRefSymValue*>(v);
 
     std::vector<SymValue*> args;
     std::transform(
@@ -317,29 +319,25 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Call(CallInst *callInst, FlowN
         std::back_inserter(args),
         [this, node](auto x) { return node->GetResult(x); }
     );
-
-    Location resume_location;
-    resume_location.inst = callInst->getIterator();
-    ++resume_location.inst;
-    resume_location.block = node->location.block;
-    resume_location.func = node->location.func;
-
-    //Check if end of block
+    
+    SuccessorFlowNode *newNode = storagePool.persist(
+        node->CreateFunctionNode(
+            *FindFuncByName(funcRef->get_name(), prog),
+            args,
+            callInst->getIterator(),
+            storagePool
+        )
+    );
 
     std::unordered_set<FlowNode*> result;
-    result.insert(CreateFunctionFlowNode(
-        func,
-        args,
-        callInst,
-        std::optional<Location>(resume_location),
-        node
-    ));
-
+    result.insert(newNode);
     return result;
 }
 
-void SymbolicEvaluation::Cmp(CmpInst *cmpInst, FlowNode *node)
-{
+void SymbolicEvaluation::Cmp(
+    CmpInst *cmpInst,
+    FlowNode *node
+) {
     Cond c = cmpInst->GetCC();
     Inst *lhs = cmpInst->GetLHS();
     Inst *rhs = cmpInst->GetRHS();
@@ -386,12 +384,14 @@ void SymbolicEvaluation::Cmp(CmpInst *cmpInst, FlowNode *node)
         break;
     }
 
-    valuePool.persist(result);
+    storagePool.persist(result);
     node->AllocateResult(cmpInst, result);
 }
 
-std::unordered_set<FlowNode*>  SymbolicEvaluation::JumpCond(JumpCondInst *jumpCondInst, FlowNode *node)
-{
+std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
+    JumpCondInst *jumpCondInst,
+    FlowNode *node
+) {
     std::unordered_set<FlowNode*> result;
 
     Inst *cond = jumpCondInst->GetCond();
@@ -412,8 +412,8 @@ std::unordered_set<FlowNode*>  SymbolicEvaluation::JumpCond(JumpCondInst *jumpCo
             block = falseBlock;
             func = falseFunc;
         }
-        if(func->GetName() != node->location.func->GetName()) {
-            std::cout<<"Jumping from "<<node->location.func->GetName()<<" to "<<func->GetName()<<std::endl;
+        if(func->GetName() != node->get_func()->GetName()) {
+            std::cout<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<std::endl;
         }
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
@@ -428,30 +428,40 @@ std::unordered_set<FlowNode*>  SymbolicEvaluation::JumpCond(JumpCondInst *jumpCo
     return result;
 }
 
-void SymbolicEvaluation::Load(LoadInst *loadInst, FlowNode *node)
-{
+void SymbolicEvaluation::Load(
+    LoadInst *loadInst,
+    FlowNode *node
+) {
     SymValue *addr = node->GetResult(loadInst->GetAddr());
-    node->AllocateResult(loadInst,node->Load(addr));
+    node->AllocateResult(loadInst,node->get_store().read(addr));
 }
 
-void SymbolicEvaluation::Mov(MovInst *movInst, FlowNode *node)
-{
+void SymbolicEvaluation::Mov(
+    MovInst *movInst,
+    FlowNode *node
+) {
     Value *arg = movInst->GetArg();
     SymValue *result;
     switch(arg->GetKind()) {
     case Value::Kind::GLOBAL: {
         auto g = static_cast<Global*>(arg);
         switch(g->GetKind()) {
+        case Global::Kind::ATOM:
+            std::cout<<"Moving global atom"<<std::endl;
+            result = new AddrSymValue(g->GetName(),0);
+            storagePool.persist(result);
+            break;
+
         case Global::Kind::FUNC:
             std::cout<<"Moving global func"<<std::endl;
             result = new FuncRefSymValue(g->GetName());
-            valuePool.persist(result);
+            storagePool.persist(result);
             break;
         
         default:
             std::cout<<"Moving unknown global"<<std::endl;
             result = new UnknownSymValue();
-            valuePool.persist(result);
+            storagePool.persist(result);
             break;
         }
     } break;
@@ -468,20 +478,20 @@ void SymbolicEvaluation::Mov(MovInst *movInst, FlowNode *node)
         case Constant::Kind::INT: {
             ConstantInt *ci = static_cast<ConstantInt*>(c);
             result = new IntSymValue(ci->GetValue());
-            valuePool.persist(result);
+            storagePool.persist(result);
             std::cout<<"Moving int "<<ci->GetValue()<<std::endl;
         } break;
         
         case Constant::Kind::FLOAT: {
             ConstantFloat *cf = static_cast<ConstantFloat*>(c);
             result = new FloatSymValue(cf->GetValue());
-            valuePool.persist(result);
+            storagePool.persist(result);
             std::cout<<"Moving float "<<cf->GetValue()<<std::endl;
         } break;
 
         default:
             result = new UnknownSymValue();
-            valuePool.persist(result);
+            storagePool.persist(result);
             std::cout<<"Moving const"<<std::endl;
             break;
         }
@@ -489,7 +499,7 @@ void SymbolicEvaluation::Mov(MovInst *movInst, FlowNode *node)
 
     case Value::Kind::EXPR: {
         result = new UnknownSymValue();
-        valuePool.persist(result);
+        storagePool.persist(result);
         std::cout<<"Moving expr"<<std::endl;
     }
     }
@@ -497,54 +507,41 @@ void SymbolicEvaluation::Mov(MovInst *movInst, FlowNode *node)
     node->AllocateResult(movInst, result);
 }
 
-std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(ReturnInst *returnInst, FlowNode *node)
-{
-    Inst *return_addr = node->currentFrame->return_addr;
+std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
+    ReturnInst *returnInst,
+    FlowNode *node
+) {
+    Inst *caller = node->get_frame().get_caller();
     SymValue *returnValue = node->GetResult(returnInst->GetValue());
     FlowNode *newNode = CreateReturnFlowNode(node);
-    newNode->AllocateResult(return_addr, returnValue);
+    newNode->AllocateResult(caller, returnValue);
     std::unordered_set<FlowNode*> nodes;
     nodes.insert(newNode);
     return nodes;
 }
 
-void SymbolicEvaluation::Store(StoreInst *storeInst, FlowNode *node)
-{
+void SymbolicEvaluation::Store(
+    StoreInst *storeInst,
+    FlowNode *node
+) {
     SymValue *addr = node->GetResult(storeInst->GetAddr());
     SymValue *value = node->GetResult(storeInst->GetVal());
-    node->Store(addr, value);
+    node->get_store().write(addr, value);
 }
 
-std::unordered_set<FlowNode*>  SymbolicEvaluation::TCall(TailCallInst *tailCallInst, FlowNode *node)
-{
+std::unordered_set<FlowNode*> SymbolicEvaluation::TCall(
+    TailCallInst *tailCallInst,
+    FlowNode *node
+) {
     SymValue *v = node->GetResult(tailCallInst->GetCallee());
 
     if ( v == nullptr || v->get_kind() != SymValue::Kind::FUNCREF ) {
         std::cout<<"Called something that isn't a func ref"<<std::endl;
-        SymValue* unknown = new UnknownSymValue();
-        valuePool.persist(unknown);
-        node->AllocateResult(
-            tailCallInst,
-            unknown
-        );
+        node->AllocateResult(tailCallInst,storagePool.persist(new UnknownSymValue()));
         return std::unordered_set<FlowNode*>();
     }
 
-    FuncRefSymValue *fvp = (FuncRefSymValue*)v;
-    std::string_view name = fvp->get_name();
-
-    auto func = FindFuncByName(name, prog);
-
-    if ( func == prog->end() ) {
-        std::cout<<"No function with name " << name << " found"<<std::endl;
-        SymValue* unknown = new UnknownSymValue();
-        valuePool.persist(unknown);
-        node->AllocateResult(
-            tailCallInst,
-            unknown
-        );
-        return std::unordered_set<FlowNode*>();
-    }
+    FuncRefSymValue *funcRef = static_cast<FuncRefSymValue*>(v);
 
     std::vector<SymValue*> args;
     std::transform(
@@ -552,13 +549,19 @@ std::unordered_set<FlowNode*>  SymbolicEvaluation::TCall(TailCallInst *tailCallI
         std::back_inserter(args),
         [this, node](auto x) { return node->GetResult(x); }
     );
+    
+    SuccessorFlowNode *newNode = storagePool.persist(
+        node->CreateTailCallNode(
+            *FindFuncByName(funcRef->get_name(), prog),
+            args,
+            storagePool
+        )
+    );
 
     std::unordered_set<FlowNode*> result;
-    result.insert(CreateTailCallFlowNode(func, args, node));
-
+    result.insert(newNode);
     return result;
 }
-
 
 // -----------------------------------------------------------------------------
 std::string toString(Inst::Kind k)
@@ -628,7 +631,7 @@ std::string toString(Inst::Kind k)
     }
 }
 
-void PrintLearningInfo(Prog *prog)
+void PrintCodeInfo(Prog *prog)
 {
     std::unordered_map<int, std::optional<int>> registers;
     std::map<Inst::Kind, bool> seen; //TEMP
@@ -657,9 +660,33 @@ void PrintLearningInfo(Prog *prog)
                             ConstantFloat *cf = (ConstantFloat*)c;
                             std::cout<<"Constant"<<cf->GetValue()<<" ";
                         } break;
-                        case Constant::REG:
-                            std::cout<<"ConstantReg"<<std::endl;
-                            break;
+                        case Constant::REG: {
+                            std::cout<<"ConstantReg"<<" ";
+                            ConstantReg *cr = static_cast<ConstantReg*>(c);
+                            switch(cr->GetValue()) {
+                            case ConstantReg::Kind::RAX: std::cout<<"RAX"; break;
+                            case ConstantReg::Kind::RBX: std::cout<<"RBX"; break;
+                            case ConstantReg::Kind::RCX: std::cout<<"RCX"; break;
+                            case ConstantReg::Kind::RDX: std::cout<<"RDX"; break;
+                            case ConstantReg::Kind::RSI: std::cout<<"RSI"; break;
+                            case ConstantReg::Kind::RDI: std::cout<<"RDI"; break;
+                            case ConstantReg::Kind::RSP: std::cout<<"RSP"; break;
+                            case ConstantReg::Kind::RBP: std::cout<<"RBP"; break;
+                            case ConstantReg::Kind::R8: std::cout<<"R8"; break;
+                            case ConstantReg::Kind::R9: std::cout<<"R9"; break;
+                            case ConstantReg::Kind::R10: std::cout<<"R10"; break;
+                            case ConstantReg::Kind::R11: std::cout<<"R11"; break;
+                            case ConstantReg::Kind::R12: std::cout<<"R12"; break;
+                            case ConstantReg::Kind::R13: std::cout<<"R13"; break;
+                            case ConstantReg::Kind::R14: std::cout<<"R14"; break;
+                            case ConstantReg::Kind::R15: std::cout<<"R15"; break;
+                            case ConstantReg::Kind::RET_ADDR: std::cout<<"RET_ADDR"; break;
+                            case ConstantReg::Kind::FRAME_ADDR: std::cout<<"FRAME_ADDR"; break;
+                            case ConstantReg::Kind::PC: std::cout<<"PC"; break;
+                            default: std::cout<<"Unknown";
+                            }
+                            std::cout<<std::endl;
+                        } break;
                         }
                     } break;
                     
@@ -707,5 +734,61 @@ void PrintLearningInfo(Prog *prog)
 
     for(auto &entry: seen) {
         std::cout<<toString(entry.first)<<" "<<entry.second<<std::endl;
+    }
+
+    std::cout<<"---------------------------------------"<<std::endl;
+}
+
+void PrintDataInfo(Prog *prog)
+{
+    for(auto &data: prog->data()) {
+        std::cout<<"Start data segment: "<<data.GetName()<<std::endl;
+        for(auto &atom: data) {
+            std::cout<<"Start: "<<atom.GetName()<<std::endl;
+            for (auto &item: atom) {
+                switch(item->GetKind()) {
+                case Item::Kind::ALIGN:
+                    std::cout<<"Align "<<item->GetAlign()<<std::endl;
+                    break;
+                
+                case Item::Kind::END:
+                    std::cout<<"End"<<std::endl;
+                    break;
+                
+                case Item::Kind::FLOAT64:
+                    std::cout<<"Float64 "<<item->GetFloat64()<<std::endl;
+                    break;
+                
+                case Item::Kind::INT16:
+                    std::cout<<"Int16 "<<item->GetInt16()<<std::endl;
+                    break;
+
+                case Item::Kind::INT32:
+                    std::cout<<"Int32 "<<item->GetInt32()<<std::endl;
+                    break;
+                
+                case Item::Kind::INT64:
+                    std::cout<<"Int64 "<<item->GetInt64()<<std::endl;
+                    break;
+                
+                case Item::Kind::INT8:
+                    std::cout<<"Int8 "<<item->GetInt8()<<std::endl;
+                    break;
+                
+                case Item::Kind::SPACE:
+                    std::cout<<"Space "<<item->GetSpace()<<std::endl;
+                    break;
+                
+                case Item::Kind::STRING:
+                    std::cout<<"String "<<static_cast<std::string>(item->GetString())<<std::endl;
+                    break;
+                
+                case Item::Kind::SYMBOL:
+                    std::cout<<"Symbol "<<item->GetSymbol()<<std::endl;
+                    break;
+                }
+            }
+            std::cout<<"End atom"<<std::endl;
+        }
     }
 }

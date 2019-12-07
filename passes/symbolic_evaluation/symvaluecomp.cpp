@@ -21,6 +21,11 @@ SymValue *SymComp::EQ(SymValue *lv, SymValue *rv)
         return new BoolSymValue(true);
     } else if (lv->get_kind() == rv->get_kind()) {
         switch(lv->get_kind()) {
+        case SymValue::Kind::ADDR: {
+            auto l = static_cast<AddrSymValue*>(lv);
+            auto r = static_cast<AddrSymValue*>(rv);
+            return new BoolSymValue(l->get_name() == r->get_name() && l->get_offset() == r->get_offset());
+        }
         case SymValue::Kind::BOOL: {
             auto l = static_cast<BoolSymValue*>(lv);
             auto r = static_cast<BoolSymValue*>(rv);
@@ -43,6 +48,12 @@ SymValue *SymComp::EQ(SymValue *lv, SymValue *rv)
             auto l = static_cast<IntSymValue*>(lv);
             auto r = static_cast<IntSymValue*>(rv);
             return new BoolSymValue(l->get_value() == r->get_value());
+        }
+
+        case SymValue::Kind::STR: {
+            auto l = static_cast<StringSymValue*>(lv);
+            auto r = static_cast<StringSymValue*>(rv);
+            return new BoolSymValue(l->get_string() == r->get_string());
         }
 
         default:
@@ -80,8 +91,10 @@ SymValue *SymComp::LT(SymValue* lv, SymValue *rv)
 
         default:
             std::cout<<"Default case used in LT"<<std::endl;
+        case SymValue::Kind::ADDR:
         case SymValue::Kind::BOOL:
         case SymValue::Kind::FUNCREF:
+        case SymValue::Kind::STR:
         case SymValue::Kind::UNKNOWN:
             return new UnknownSymValue();
         }
@@ -110,8 +123,10 @@ SymValue *SymComp::GT(SymValue *lv, SymValue *rv)
 
         default:
             std::cout<<"Default case used in GT"<<std::endl;
+        case SymValue::Kind::ADDR:
         case SymValue::Kind::BOOL:
         case SymValue::Kind::FUNCREF:
+        case SymValue::Kind::STR:
         case SymValue::Kind::UNKNOWN:
             return new UnknownSymValue();
         }

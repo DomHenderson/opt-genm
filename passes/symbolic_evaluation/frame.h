@@ -6,15 +6,25 @@
 #include <vector>
 
 #include "core/inst.h"
-#include "location.h"
 #include "symvalue.h"
 
-struct Frame {
-    Frame(std::vector<SymValue*> args): args(args) {}
-    std::vector<SymValue*> args;
+class Frame {
+public:
+    using Inst_iterator = llvm::ilist<Inst>::iterator;
+
+    Frame(
+        std::vector<SymValue*> args,
+        Frame *previous,
+        Inst *callee,
+        std::optional<Inst_iterator> resumeInst
+    ): args(args), previous(previous) {}
+    SymValue *get_arg(unsigned idx) { return args[idx]; }
+    Frame *get_previous() { return previous; }
+    Inst *get_caller() { return caller; }
+    std::optional<Inst_iterator> get_resume_inst() { return resumeInst; }
+private:
     Frame *previous;
-    // COMMENT!!!!!!!!!
-    Inst *return_addr;
-    // return_addr->getParent()
-    std::optional<Location> resume_location = std::nullopt;
+    std::vector<SymValue*> args;
+    Inst *caller;
+    std::optional<Inst_iterator> resumeInst;
 };

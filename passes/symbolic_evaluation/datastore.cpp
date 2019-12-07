@@ -1,0 +1,298 @@
+#include <iostream>
+
+#include <llvm/ADT/StringRef.h>
+
+#include "core/atom.h"
+#include "core/data.h"
+#include "core/prog.h"
+#include "datastore.h"
+#include "storagepool.h"
+#include "symvalue.h"
+#include "symvaluecomp.h"
+
+void MappedAtom::add(Item *item)
+{
+    if(ended) {
+        std::cout<<"Ignoring post-end ";
+        switch(item->GetKind()) {
+        case Item::Kind::ALIGN: std::cout<<"Align"<<std::endl; break;
+        case Item::Kind::END: std::cout<<"End"<<std::endl; break;
+        case Item::Kind::FLOAT64: std::cout<<"Float64"<<std::endl; break;
+        case Item::Kind::INT16: std::cout<<"Int16"<<std::endl; break;
+        case Item::Kind::INT32: std::cout<<"Int32"<<std::endl; break;
+        case Item::Kind::INT64: std::cout<<"Int64"<<std::endl; break;
+        case Item::Kind::INT8: std::cout<<"Int8"<<std::endl; break;
+        case Item::Kind::SPACE: std::cout<<"Space"<<std::endl; break;
+        case Item::Kind::STRING: std::cout<<"String"<<std::endl; break;
+        case Item::Kind::SYMBOL: std::cout<<"Symbol"<<std::endl; break;
+        }
+        return;        
+    }
+    std::cout<<"adding ";
+    switch(item->GetKind()) {
+    case Item::Kind::ALIGN: { std::cout<<"align"<<std::endl;
+        unsigned align = item->GetAlign();
+        unsigned mod = next % align;
+        unsigned shift = (align - mod) % align;
+        next += shift;
+    } break;
+    
+    case Item::Kind::END: std::cout<<"end"<<std::endl;
+        items[next] = MappedItem();
+        previous = next;
+        ended = true;
+        break;
+    
+    case Item::Kind::FLOAT64: std::cout<<"float64"<<std::endl;
+        items[next] = MappedItem(
+            pool.persist(new UnknownSymValue()),
+            8
+        );
+        previous = next;
+        next += 8;
+        break;
+    
+    case Item::Kind::INT16: std::cout<<"int16"<<std::endl;
+        items[next] = MappedItem(
+            pool.persist(new IntSymValue(item->GetInt16())),
+            2
+        );
+        previous = next;
+        next += 2;
+        break;
+    
+    case Item::Kind::INT32: std::cout<<"int32"<<std::endl;
+        items[next] = MappedItem(
+            pool.persist(new IntSymValue(item->GetInt32())),
+            4
+        );
+        previous = next;
+        next += 4;
+        break;
+
+    case Item::Kind::INT64: std::cout<<"int64"<<std::endl;
+        items[next] = MappedItem(
+            pool.persist(new IntSymValue(item->GetInt64())),
+            8
+        );
+        previous = next;
+        next += 8;
+        break;
+
+    case Item::Kind::INT8: std::cout<<"int8"<<std::endl;
+        items[next] = MappedItem(
+            pool.persist(new IntSymValue(item->GetInt8())),
+            1
+        );
+        previous = next;
+        next += 1;
+        break;
+    
+    case Item::Kind::SPACE: std::cout<<"space"<<std::endl;
+        next += item->GetSpace();
+        break;
+    
+    case Item::Kind::STRING: std::cout<<"string"<<std::endl;
+        items[next] = MappedItem(
+            pool.persist(new StringSymValue(item->GetString())),
+            item->GetString().size()
+        );
+        previous = next;
+        next += item->GetString().size();
+        break;
+    
+    case Item::Kind::SYMBOL: { std::cout<<"symbol"<<std::endl;
+        Global *g = item->GetSymbol();
+        SymValue *value;
+        switch(g->GetKind()) {
+        case Global::Kind::ATOM: {
+            Atom *a = static_cast<Atom*>(g);
+            value = new AddrSymValue(a->GetName(), 0);
+        } break;
+        case Global::Kind::BLOCK: {
+            Block *b = static_cast<Block*>(g);
+            std::cout<<"Block "<<b->GetName()<<std::endl;
+            value = new UnknownSymValue();
+        } break;
+        case Global::Kind::EXTERN: {
+            Extern *e = static_cast<Extern*>(g);
+            std::cout<<"Extern "<<e->GetName()<<std::endl;
+            value = new UnknownSymValue();
+        } break;
+        case Global::Kind::FUNC: {
+            Func *f = static_cast<Func*>(g);
+            value = new FuncRefSymValue(f->GetName());
+        } break;
+        case Global::Kind::SYMBOL: {
+            Symbol *s = static_cast<Symbol*>(g);
+            std::cout<<"Symbol "<<s->GetName()<<std::endl;
+        } break;
+        }
+        items[next] = MappedItem(
+            pool.persist(value),
+            8
+        );
+        previous = next;
+        next += 8;
+    } break;
+    }
+}
+
+SymValue *MappedAtom::get(int offset)
+{
+    std::cout<<"getting"<<std::endl;
+    if(offset < 0) {
+        std::cout<<"Negative offset "<<offset<<std::endl;
+        return new UnknownSymValue();
+    }
+    int idx = -1;
+    for(const auto &[k,v]: items) {
+        if(offset < k) {
+            break;
+        }
+        idx = k;
+    }
+    if(idx == -1) {
+        std::cout<<"Non-negative offset "
+            <<offset
+            <<" before first item "
+            <<items.begin()->first
+            <<std::endl;
+            return new UnknownSymValue();
+    } else {
+        auto &item = items[idx];
+        if(item.get_kind() == MappedItem::Kind::END) {
+            std::cout<<"Attemptd to read at or beyond end (offset "
+                <<offset
+                <<")"
+                <<std::endl;
+            return new UnknownSymValue();
+        } else {
+            SymValue *value = item.get_value();
+            std::cout<<"Found ";
+            switch(value->get_kind()) {
+            case SymValue::Kind::ADDR: std::cout<<"addr"; break;
+            case SymValue::Kind::BOOL: std::cout<<"bool"; break;
+            case SymValue::Kind::FLOAT: std::cout<<"float"; break;
+            case SymValue::Kind::FUNCREF: std::cout<<"funcref"; break;
+            case SymValue::Kind::INT: std::cout<<"int"; break;
+            case SymValue::Kind::STR: std::cout<<"str"; break;
+            case SymValue::Kind::UNKNOWN: std::cout<<"unknown"; break;
+            }
+            std::cout<<std::endl;
+            return value;
+        }
+    }
+    
+}
+
+//-----------------------------------------------------------------------------
+
+BaseStore::BaseStore(
+    Prog &prog,
+    SymExPool &storagePool
+): 
+    storagePool(storagePool)
+{
+    for(auto &data: prog.data()) {
+        for(auto &atom: data) {
+            std::string_view name = atom.GetName();
+            MappedAtom mappedAtom(storagePool);
+            for(auto item: atom) {
+                mappedAtom.add(item);
+            }
+            atoms.emplace(name,std::move(mappedAtom));
+        }
+    }
+}
+
+SymValue *BaseStore::read(SymValue *loc)
+{
+    switch(loc->get_kind()) {
+    case SymValue::Kind::ADDR: {
+        AddrSymValue *addr = static_cast<AddrSymValue*>(loc);
+        auto a = atoms.find(addr->get_name());
+        MappedAtom *atom = a == atoms.end()
+            ? nullptr
+            : &(a->second);
+        std::cout<<"Reading from atom "
+            <<(atom==nullptr?"not found":addr->get_name())
+            <<std::endl;
+        std::cout<<"Reading at offset of "<<addr->get_offset()<<std::endl;
+        return storagePool.persist(
+            (atom==nullptr
+                ? new UnknownSymValue()
+                : atom->get(addr->get_offset())
+            )
+        );
+    } break;
+    default:
+        std::cout<<"Attempting to read at non-address"<<std::endl;
+        return storagePool.persist(
+            new UnknownSymValue()
+        );
+    }
+}
+
+void BaseStore::write(
+    SymValue *addr,
+    SymValue *value
+) {
+    std::cout<<"base write not implemented"<<std::endl;
+}
+
+void BaseStore::invalidate()
+{
+    std::cout<<"base invalidate not implemented"<<std::endl;
+}
+
+//-----------------------------------------------------------------------------
+
+LogStore::LogStore(
+    DataStore &store
+):
+    baseStore(&store)
+{
+    std::cout<<"Correct constructor"<<std::endl;
+}
+
+SymValue *LogStore::read(SymValue *loc)
+{
+    if(writes.size() == 0) {
+        std::cout<<"No writes. Delegating"<<std::endl;
+        return baseStore->read(loc);
+    }
+    if(loc->get_kind() != SymValue::Kind::ADDR) {
+        std::cout<<"Attempted log read of non-addr"<<std::endl;
+    }
+    auto addr = static_cast<AddrSymValue*>(loc);
+    for(int i = writes.size()-1; i >= 0; --i) {
+        SymValue *comp = SymComp::NEQ(loc,writes[i].first);
+        if(comp->get_kind() == SymValue::Kind::UNKNOWN) {
+            delete comp;
+            std::cout<<"Found potential match"<<std::endl;
+            return new UnknownSymValue();
+        } else if(comp->get_kind() == SymValue::Kind::BOOL) {
+            auto b = static_cast<BoolSymValue*>(comp);
+            if(!b->get_value()) {
+                std::cout<<"Found match"<<std::endl;
+                return writes[i].second;
+            }
+        }
+    }
+    std::cout<<"log read delegated"<<std::endl;
+    return baseStore->read(loc);
+}
+
+void LogStore::write(
+    SymValue *addr,
+    SymValue *value
+) {
+    std::cout<<"log write logged"<<std::endl;
+    writes.push_back({addr,value});
+}
+
+void LogStore::invalidate()
+{
+    std::cout<<"log invalidate not implemented"<<std::endl;
+}
