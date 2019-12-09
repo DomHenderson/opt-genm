@@ -15,9 +15,9 @@ public:
     Frame(
         std::vector<SymValue*> args,
         Frame *previous,
-        Inst *callee,
+        Inst *caller,
         std::optional<Inst_iterator> resumeInst
-    ): args(args), previous(previous) {}
+    ): args(args), previous(previous), caller(caller), resumeInst(resumeInst) {}
     SymValue *get_arg(unsigned idx) { return args[idx]; }
     Frame *get_previous() { return previous; }
     Inst *get_caller() { return caller; }
