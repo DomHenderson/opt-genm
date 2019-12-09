@@ -354,7 +354,7 @@ void SymbolicEvaluation::Cmp(
     Inst *rhs = cmpInst->GetRHS();
     SymValue *lv = node->GetResult(lhs);
     SymValue *rv = node->GetResult(rhs);
-    SymValue *result;
+    SymComp::Result result;
 
     std::cout<<"lhs: "<<toString(lhs->GetKind())<<" rhs: "<<toString(rhs->GetKind())<<std::endl;
 
@@ -391,12 +391,13 @@ void SymbolicEvaluation::Cmp(
     
     default:
         std::cout<<"Comparing "<<(int)c<<std::endl;
-        result = new UnknownSymValue();
+        result = SymComp::Result::UNKNOWN;
         break;
     }
 
-    storagePool.persist(result);
-    node->AllocateResult(cmpInst, result);
+    SymValue *value = SymComp::ToSymValue(result);
+    storagePool.persist(value);
+    node->AllocateResult(cmpInst, value);
 }
 
 std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(

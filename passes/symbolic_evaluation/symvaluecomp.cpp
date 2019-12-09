@@ -3,90 +3,104 @@
 #include "symvalue.h"
 #include "symvaluecomp.h"
 
-// -----------------------------------------------------------------------------
-SymValue *SymComp::Invert(SymValue *v)
+using SymComp::Result;
+
+Result SymComp::FromBool(bool b)
 {
-    if(v->get_kind() == SymValue::Kind::BOOL) {
-        auto b = static_cast<BoolSymValue*>(v);
-        delete v;
-        return new BoolSymValue(!b->get_value());
-    } else { //eq is unknown
-        return v;
+     return b ? Result::TRUE : Result::FALSE;
+}
+
+SymValue *SymComp::ToSymValue(Result r)
+{
+    switch(r) {
+    case Result::TRUE: return new BoolSymValue(true);
+    case Result::UNKNOWN: return new UnknownSymValue();
+    case Result::FALSE: return new BoolSymValue(false);
     }
 }
 
-SymValue *SymComp::EQ(SymValue *lv, SymValue *rv)
+// -----------------------------------------------------------------------------
+Result SymComp::Not(Result r)
+{
+    switch(r) {
+    case Result::TRUE: return Result::FALSE;
+    case Result::UNKNOWN: return Result::UNKNOWN;
+    case Result::FALSE: return Result::TRUE;
+    }
+}
+
+Result SymComp::EQ(SymValue *lv, SymValue *rv)
 {
     if ( lv == rv ) {
-        return new BoolSymValue(true);
+        return Result::TRUE;
     } else if (lv->get_kind() == rv->get_kind()) {
         switch(lv->get_kind()) {
         case SymValue::Kind::ADDR: {
             auto l = static_cast<AddrSymValue*>(lv);
             auto r = static_cast<AddrSymValue*>(rv);
-            return new BoolSymValue(l->get_name() == r->get_name() && l->get_offset() == r->get_offset());
+            return FromBool(l->get_name() == r->get_name() && l->get_offset() == r->get_offset());
         }
         case SymValue::Kind::BOOL: {
             auto l = static_cast<BoolSymValue*>(lv);
             auto r = static_cast<BoolSymValue*>(rv);
-            return new BoolSymValue(l->get_value() == r->get_value());
+            return FromBool(l->get_value() == r->get_value());
         }
 
         case SymValue::Kind::FLOAT: {
             auto l = static_cast<FloatSymValue*>(lv);
             auto r = static_cast<FloatSymValue*>(rv);
-            return new BoolSymValue(l->get_value() == r->get_value());
+            return FromBool(l->get_value() == r->get_value());
         }
 
         case SymValue::Kind::FUNCREF: {
             auto l = static_cast<FuncRefSymValue*>(lv);
             auto r = static_cast<FuncRefSymValue*>(rv);
-            return new BoolSymValue(l->get_name() == r->get_name());
+            return FromBool(l->get_name() == r->get_name());
         }
 
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lv);
             auto r = static_cast<IntSymValue*>(rv);
-            return new BoolSymValue(l->get_value() == r->get_value());
+            return FromBool(l->get_value() == r->get_value());
         }
 
         case SymValue::Kind::STR: {
             auto l = static_cast<StringSymValue*>(lv);
             auto r = static_cast<StringSymValue*>(rv);
-            return new BoolSymValue(l->get_string() == r->get_string());
+            return FromBool(l->get_string() == r->get_string());
         }
 
         default:
             std::cout<<"Default case used in EQ"<<std::endl;
         case SymValue::Kind::UNKNOWN:
-            return new UnknownSymValue();
+            return Result::UNKNOWN;
         }
     } else {
-        return new UnknownSymValue();
+        return Result::UNKNOWN;
     }
 }
 
-SymValue *SymComp::NEQ(SymValue *lv, SymValue *rv)
+Result SymComp::NEQ(SymValue *lv, SymValue *rv)
 {
-    return SymComp::Invert(SymComp::EQ(lv, rv));
+    return SymComp::Not(SymComp::EQ(lv, rv));
 }
 
-SymValue *SymComp::LT(SymValue* lv, SymValue *rv)
+Result SymComp::LT(SymValue* lv, SymValue *rv)
 {
     if ( lv == rv ) {
-        return new BoolSymValue(false);
+        return Result::FALSE;
     } else if (lv->get_kind() == rv->get_kind()) {
         switch(lv->get_kind()) {
         case SymValue::Kind::FLOAT: {
             auto l = static_cast<FloatSymValue*>(lv);
             auto r = static_cast<FloatSymValue*>(rv);
-            return new BoolSymValue(l->get_value() < r->get_value());
+            return FromBool(l->get_value() < r->get_value());
         }
 
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lv);
             auto r = static_cast<IntSymValue*>(rv);
-            return new BoolSymValue(l->get_value() < r->get_value());
+            return FromBool(l->get_value() < r->get_value());
         }
 
         default:
@@ -96,29 +110,29 @@ SymValue *SymComp::LT(SymValue* lv, SymValue *rv)
         case SymValue::Kind::FUNCREF:
         case SymValue::Kind::STR:
         case SymValue::Kind::UNKNOWN:
-            return new UnknownSymValue();
+            return Result::UNKNOWN;
         }
     } else {
-        return new UnknownSymValue();
+        return Result::UNKNOWN;
     }
 }
 
-SymValue *SymComp::GT(SymValue *lv, SymValue *rv)
+Result SymComp::GT(SymValue *lv, SymValue *rv)
 {
     if ( lv == rv ) {
-        return new BoolSymValue(false);
+        return Result::FALSE;
     } else if (lv->get_kind() == rv->get_kind()) {
         switch(lv->get_kind()) {
         case SymValue::Kind::FLOAT: {
             auto l = static_cast<FloatSymValue*>(lv);
             auto r = static_cast<FloatSymValue*>(rv);
-            return new BoolSymValue(l->get_value() > r->get_value());
+            return FromBool(l->get_value() > r->get_value());
         }
 
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lv);
             auto r = static_cast<IntSymValue*>(rv);
-            return new BoolSymValue(l->get_value() > r->get_value());
+            return FromBool(l->get_value() > r->get_value());
         }
 
         default:
@@ -128,19 +142,19 @@ SymValue *SymComp::GT(SymValue *lv, SymValue *rv)
         case SymValue::Kind::FUNCREF:
         case SymValue::Kind::STR:
         case SymValue::Kind::UNKNOWN:
-            return new UnknownSymValue();
+            return Result::UNKNOWN;
         }
     } else {
-        return new UnknownSymValue();
+        return Result::UNKNOWN;
     }
 }
 
-SymValue *SymComp::LE(SymValue *lv, SymValue *rv)
+Result SymComp::LE(SymValue *lv, SymValue *rv)
 {
-    return SymComp::Invert(SymComp::GT(lv, rv));
+    return SymComp::Not(SymComp::GT(lv, rv));
 }
 
-SymValue *SymComp::GE(SymValue *lv, SymValue *rv)
+Result SymComp::GE(SymValue *lv, SymValue *rv)
 {
-    return SymComp::Invert(SymComp::LT(lv, rv));
+    return SymComp::Not(SymComp::LT(lv, rv));
 }

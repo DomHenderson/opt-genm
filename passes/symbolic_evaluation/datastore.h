@@ -12,7 +12,7 @@ class SymExPool;
 
 class DataStore {
 public:
-    virtual SymValue *read(SymValue *loc) = 0;
+    virtual SymValue *read(SymValue *loc, bool record = true) = 0;
     virtual void write(SymValue *addr, SymValue *value) = 0;
     virtual void invalidate() = 0;
 };
@@ -52,7 +52,7 @@ private:
 class BaseStore: public DataStore {
 public:
     BaseStore(Prog &prog, SymExPool &storagePool);
-    virtual SymValue *read(SymValue *loc) override;
+    virtual SymValue *read(SymValue *loc, bool record = true) override;
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
 private:
@@ -63,18 +63,28 @@ private:
 class LogStore: public DataStore {
 public:
     LogStore(DataStore &store);
-    virtual SymValue *read(SymValue *loc) override;
+    virtual SymValue *read(SymValue *loc, bool record = true) override;
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
 private:
     class Action {
     public:
-        enum class Kind {INVALIDATE, WRITE};
+        enum class Kind {INVALIDATE, READ, WRITE};
         virtual Kind get_kind() const = 0;
     };
     class Invalidate: public Action {
     public:
         virtual Kind get_kind() const override { return Kind::INVALIDATE; }
+    };
+    class Read: public Action {
+    public:
+        Read(SymValue *addr, SymValue *value): addr(addr), value(value) {}
+        virtual Kind get_kind() const override { return Kind::READ; }
+        SymValue *get_addr() const { return addr; }
+        SymValue *get_value() const { return value; }
+    private:
+        SymValue *addr;
+        SymValue *value;
     };
     class Write: public Action {
     public:

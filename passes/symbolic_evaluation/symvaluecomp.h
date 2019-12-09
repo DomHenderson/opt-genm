@@ -1,11 +1,20 @@
 #pragma once
 
+#include "symvalue.h"
+
 namespace SymComp {
-    SymValue *Invert(SymValue *v);
-    SymValue *EQ(SymValue *lv, SymValue *rv);
-    SymValue *NEQ(SymValue *lv, SymValue *rv);
-    SymValue *LT(SymValue* lv, SymValue *rv);
-    SymValue *GT(SymValue *lv, SymValue *rv);
-    SymValue *LE(SymValue *lv, SymValue *rv);
-    SymValue *GE(SymValue *lv, SymValue *rv);
+    enum class Result {
+        TRUE,
+        UNKNOWN,
+        FALSE
+    };
+    Result FromBool(bool b);
+    SymValue *ToSymValue(Result r);
+    Result Not(Result r);
+    Result EQ(SymValue *lv, SymValue *rv);
+    Result NEQ(SymValue *lv, SymValue *rv);
+    Result LT(SymValue* lv, SymValue *rv);
+    Result GT(SymValue *lv, SymValue *rv);
+    Result LE(SymValue *lv, SymValue *rv);
+    Result GE(SymValue *lv, SymValue *rv);
 }

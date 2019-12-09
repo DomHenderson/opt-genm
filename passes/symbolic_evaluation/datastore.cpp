@@ -206,7 +206,7 @@ BaseStore::BaseStore(
     }
 }
 
-SymValue *BaseStore::read(SymValue *loc)
+SymValue *BaseStore::read(SymValue *loc, bool)
 {
     switch(loc->get_kind()) {
     case SymValue::Kind::ADDR: {
@@ -256,38 +256,42 @@ LogStore::LogStore(
     std::cout<<"Correct constructor"<<std::endl;
 }
 
-SymValue *LogStore::read(SymValue *loc)
+SymValue *LogStore::read(SymValue *loc, bool record)
 {
-    if(actions.size() == 0) {
-        std::cout<<"No actions. Delegating"<<std::endl;
-        return baseStore.read(loc);
-    }
-    if(loc->get_kind() != SymValue::Kind::ADDR) {
-        std::cout<<"Attempted log read of non-addr"<<std::endl;
-        return new UnknownSymValue();
-    }
-    auto addr = static_cast<AddrSymValue*>(loc);
+    SymValue *value = nullptr;
+
     for(int i = actions.size()-1; i >= 0; --i) {
         if(actions[i]->get_kind() == Action::Kind::INVALIDATE) {
-            return new UnknownSymValue();
+            value = new UnknownSymValue();
+            break;
+        } else if (actions[i]->get_kind() == Action::Kind::READ) {
+            auto read = static_cast<Read*>(actions[i].get());
+            if(SymComp::EQ(loc, read->get_addr()) == SymComp::Result::TRUE) {
+                value = read->get_value();
+                break;
+            }
         } else { // action is a write
             auto write = static_cast<Write*>(actions[i].get());
-            SymValue *comp = SymComp::NEQ(loc,write->get_addr());
-            if(comp->get_kind() == SymValue::Kind::UNKNOWN) {
-                delete comp;
+            if(SymComp::EQ(loc,write->get_addr()) == SymComp::Result::UNKNOWN) {
                 std::cout<<"Found potential match"<<std::endl;
-                return new UnknownSymValue();
-            } else if(comp->get_kind() == SymValue::Kind::BOOL) {
-                auto b = static_cast<BoolSymValue*>(comp);
-                if(!b->get_value()) {
-                    std::cout<<"Found match"<<std::endl;
-                    return write->get_value();
-                }
+                value = new UnknownSymValue();
+                break;
+            } else if(SymComp::EQ(loc,write->get_addr()) == SymComp::Result::TRUE) {
+                std::cout<<"Found match"<<std::endl;
+                value = write->get_value();
+                break;
             }
         }
     }
-    std::cout<<"log read delegated"<<std::endl;
-    return baseStore.read(loc);
+    if(value == nullptr) {
+        std::cout<<"log read delegated"<<std::endl;
+        value = baseStore.read(loc, false);
+    }
+    if(record) {
+        std::cout<<"Recording read"<<std::endl;
+        actions.push_back(std::make_unique<Read>(loc, value));
+    }
+    return value;
 }
 
 void LogStore::write(
