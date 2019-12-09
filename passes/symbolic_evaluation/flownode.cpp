@@ -1,9 +1,12 @@
+#include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <vector>
 
 #include "core/insts_call.h"
 #include "flownode.h"
 #include "storagepool.h"
+#include "utilities.h"
 
 using Inst_iterator = FlowNode::Inst_iterator;
 using Block_iterator = FlowNode::Block_iterator;
@@ -93,7 +96,9 @@ SuccessorFlowNode::SuccessorFlowNode(
 
 SuccessorFlowNode *SuccessorFlowNode::CreateReturnNode()
 {
+    std::cout<<"Creating return node"<<std::endl;
     if(!get_frame().get_resume_inst().has_value()) {
+        std::cout<<"Frame does not have resume inst"<<std::endl;
         return nullptr;
     }
 
@@ -106,6 +111,20 @@ SuccessorFlowNode *SuccessorFlowNode::CreateReturnNode()
     );
 
     return node;
+}
+
+Block *SuccessorFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks)
+{
+    std::cout<<"Resolving phi"<<std::endl;
+    Block *block = &*get_block();
+    auto iter = std::find(blocks.begin(), blocks.end(), block);
+    if(iter == blocks.end()) {
+        std::cout<<"Delegating"<<std::endl;
+        return previousNode.ResolvePhiBlocks(blocks);
+    } else {
+        std::cout<<"Resolved"<<std::endl;
+        return *iter;
+    }
 }
 
 SymValue *SuccessorFlowNode::GetResult(Inst *inst)
@@ -176,6 +195,20 @@ SuccessorFlowNode *RootFlowNode::CreateReturnNode()
     return nullptr;
 }
 
+Block *RootFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks)
+{
+    std::cout<<"Reached root resolving phi"<<std::endl;
+    Block *block = &*get_block();
+    auto iter = std::find(blocks.begin(), blocks.end(), block);
+    if(iter == blocks.end()) {
+        std::cout<<"Failed to resolve"<<std::endl;
+        return nullptr;
+    } else {
+        std::cout<<"Resolved"<<std::endl;
+        return *iter;
+    }
+}
+
 SymValue *RootFlowNode::GetResult(Inst *inst)
 {
     auto iter = reg_allocs.find(inst);
@@ -184,7 +217,7 @@ SymValue *RootFlowNode::GetResult(Inst *inst)
         return values[iter->second];
     }
 
-    std::cout<<"Result not found"<<std::endl;
+    std::cout<<"Result not found for "<<(inst==nullptr?"nullptr":toString(*inst))<<std::endl;
     UnknownSymValue *result = pool.persist(new UnknownSymValue());
     AllocateResult(inst, pool.persist(new UnknownSymValue()));
     return result;
@@ -257,5 +290,9 @@ std::unique_ptr<LogStore> CreateLogStore(FlowNode &previous)
 //Make a copy of an iterator and increment it
 Inst_iterator NextInst(Inst_iterator i)
 {
-    return ++i;
+    std::cout<<"Attempting to increment iterator"<<std::endl;
+    std::cout<<"Current value "<<toString(*i)<<std::endl;
+    ++i;
+    std::cout<<"Incremented value "<<toString(*i)<<std::endl;
+    return i;
 }

@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <queue>
+#include <stack>
 #include <unordered_map>
 #include <vector>
 
@@ -9,6 +10,9 @@
 #include "core/insts_binary.h"
 #include "core/insts_call.h"
 #include "core/insts_const.h"
+#include "core/insts_control.h"
+#include "core/insts_memory.h"
+#include "core/insts_unary.h"
 #include "core/pass.h"
 #include "core/pass_manager.h"
 #include "symbolic_evaluation/flownode.h"
@@ -41,7 +45,7 @@ private:
 
     void Add(AddInst *addInst, FlowNode *node);
     void Arg(ArgInst *argInst, FlowNode *node);
-    std::unordered_set<FlowNode*> Call(CallInst *callInst, FlowNode *node);
+    std::optional<std::unordered_set<FlowNode*>> Call(CallInst *callInst, FlowNode *node);
     void Cmp(CmpInst *cmpInst, FlowNode *node);
     std::unordered_set<FlowNode*> JumpCond(JumpCondInst *jumpCondInst, FlowNode *node);
     void Load(LoadInst *loadInst, FlowNode *node);
@@ -49,11 +53,11 @@ private:
     std::unordered_set<FlowNode*> Ret(ReturnInst *returnInst, FlowNode *node);
     void Store(StoreInst *storeInst, FlowNode *node);
     std::unordered_set<FlowNode*> TCall(TailCallInst *tailCallInst, FlowNode *node);
+    void Phi(PhiInst *phiInst, FlowNode *node);
 
-    void InvalidateHeap() { std::cout<<"Implement invalidate heap!"<<std::endl; }
+    void AllocateValue(Inst *inst, Value *value, FlowNode *node);
 
     RootFlowNode *CreateRootNode();
-    void PrintData();
     SuccessorFlowNode *CreateTailCallFlowNode(Func_iterator func, std::vector<SymValue*> args, FlowNode *previous);
     SuccessorFlowNode *CreateReturnFlowNode(FlowNode *previous);
     SuccessorFlowNode *CreateBlockFlowNode(Block_iterator block, FlowNode *previous);
@@ -62,11 +66,11 @@ private:
 
     Prog *prog;
 
-    std::queue<FlowNode*> frontier;
+    std::stack<FlowNode*> frontier;
 
     bool carryOn = true;
     unsigned int count = 0;
-    unsigned int limit = 100;
+    unsigned int limit = 1000;
 
     //Anything which needs to exist on the heap for the duration of the pass 
     //gets owned by the storage pool which then frees them all at the end

@@ -6,6 +6,7 @@ add_library(passes
     symbolic_evaluation/datastore.cpp
     symbolic_evaluation/flownode.cpp
     symbolic_evaluation/symvaluecomp.cpp
+    symbolic_evaluation/utilities.cpp
 
     pta/graph.cpp
     pta/node.cpp

@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string_view>
 
 #include "core/atom.h"
@@ -66,6 +67,26 @@ public:
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
 private:
-    DataStore *baseStore;
-    std::vector<std::pair<SymValue*,SymValue*>> writes;
+    class Action {
+    public:
+        enum class Kind {INVALIDATE, WRITE};
+        virtual Kind get_kind() const = 0;
+    };
+    class Invalidate: public Action {
+    public:
+        virtual Kind get_kind() const override { return Kind::INVALIDATE; }
+    };
+    class Write: public Action {
+    public:
+        Write(SymValue *addr, SymValue *value): addr(addr), value(value) {}
+        virtual Kind get_kind() const override { return Kind::WRITE; }
+        SymValue *get_addr() const { return addr; }
+        SymValue *get_value() const { return value; }
+    private:
+        SymValue *addr;
+        SymValue *value;
+    };
+
+    DataStore &baseStore;
+    std::vector<std::unique_ptr<Action>> actions;
 };

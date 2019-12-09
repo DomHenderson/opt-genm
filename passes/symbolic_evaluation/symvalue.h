@@ -9,6 +9,7 @@ public:
     enum class Kind {
         ADDR,
         BOOL,
+        EXTERN,
         FLOAT,
         FUNCREF,
         INT,
@@ -37,6 +38,15 @@ public:
     bool get_value() const { return b; }
 private:
     const bool b;
+};
+
+class ExternSymValue: public SymValue {
+public:
+    ExternSymValue(std::string_view externName): name(externName) {}
+    Kind get_kind() const override { return Kind::EXTERN; }
+    std::string_view get_name() { return name; }
+private:
+    std::string_view name;
 };
 
 class FloatSymValue: public SymValue {

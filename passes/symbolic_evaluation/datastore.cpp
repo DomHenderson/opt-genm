@@ -251,37 +251,43 @@ void BaseStore::invalidate()
 LogStore::LogStore(
     DataStore &store
 ):
-    baseStore(&store)
+    baseStore(store)
 {
     std::cout<<"Correct constructor"<<std::endl;
 }
 
 SymValue *LogStore::read(SymValue *loc)
 {
-    if(writes.size() == 0) {
-        std::cout<<"No writes. Delegating"<<std::endl;
-        return baseStore->read(loc);
+    if(actions.size() == 0) {
+        std::cout<<"No actions. Delegating"<<std::endl;
+        return baseStore.read(loc);
     }
     if(loc->get_kind() != SymValue::Kind::ADDR) {
         std::cout<<"Attempted log read of non-addr"<<std::endl;
+        return new UnknownSymValue();
     }
     auto addr = static_cast<AddrSymValue*>(loc);
-    for(int i = writes.size()-1; i >= 0; --i) {
-        SymValue *comp = SymComp::NEQ(loc,writes[i].first);
-        if(comp->get_kind() == SymValue::Kind::UNKNOWN) {
-            delete comp;
-            std::cout<<"Found potential match"<<std::endl;
+    for(int i = actions.size()-1; i >= 0; --i) {
+        if(actions[i]->get_kind() == Action::Kind::INVALIDATE) {
             return new UnknownSymValue();
-        } else if(comp->get_kind() == SymValue::Kind::BOOL) {
-            auto b = static_cast<BoolSymValue*>(comp);
-            if(!b->get_value()) {
-                std::cout<<"Found match"<<std::endl;
-                return writes[i].second;
+        } else { // action is a write
+            auto write = static_cast<Write*>(actions[i].get());
+            SymValue *comp = SymComp::NEQ(loc,write->get_addr());
+            if(comp->get_kind() == SymValue::Kind::UNKNOWN) {
+                delete comp;
+                std::cout<<"Found potential match"<<std::endl;
+                return new UnknownSymValue();
+            } else if(comp->get_kind() == SymValue::Kind::BOOL) {
+                auto b = static_cast<BoolSymValue*>(comp);
+                if(!b->get_value()) {
+                    std::cout<<"Found match"<<std::endl;
+                    return write->get_value();
+                }
             }
         }
     }
     std::cout<<"log read delegated"<<std::endl;
-    return baseStore->read(loc);
+    return baseStore.read(loc);
 }
 
 void LogStore::write(
@@ -289,10 +295,11 @@ void LogStore::write(
     SymValue *value
 ) {
     std::cout<<"log write logged"<<std::endl;
-    writes.push_back({addr,value});
+    actions.push_back(std::make_unique<Write>(addr,value));
 }
 
 void LogStore::invalidate()
 {
-    std::cout<<"log invalidate not implemented"<<std::endl;
+    std::cout<<"logging invalidate"<<std::endl;
+    actions.push_back(std::make_unique<Invalidate>());
 }
