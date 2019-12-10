@@ -4,8 +4,12 @@
 
 #include <llvm/ADT/StringRef.h>
 
+#include "core/type.h"
+
 class SymValue {
 public:
+    SymValue(Type type): type(type) {}
+
     enum class Kind {
         ADDR,
         BOOL,
@@ -18,11 +22,14 @@ public:
     };
 
     virtual Kind get_kind() const = 0;
+    virtual Type get_type() const { return type; }
+private:
+    Type type;
 };
 
 class AddrSymValue: public SymValue {
 public:
-    AddrSymValue(std::string_view atomName, int offset): name(atomName), offset(offset) {}
+    AddrSymValue(std::string_view atomName, int offset, Type type): SymValue(type), name(atomName), offset(offset) {}
     Kind get_kind() const override { return Kind::ADDR; }
     std::string_view get_name() { return name; }
     int get_offset() { return offset; }
@@ -33,7 +40,7 @@ private:
 
 class BoolSymValue: public SymValue {
 public:
-    BoolSymValue(bool b): b(b) {}
+    BoolSymValue(bool b, Type type): SymValue (type), b(b) {}
     Kind get_kind() const override { return Kind::BOOL; }
     bool get_value() const { return b; }
 private:
@@ -42,7 +49,7 @@ private:
 
 class ExternSymValue: public SymValue {
 public:
-    ExternSymValue(std::string_view externName): name(externName) {}
+    ExternSymValue(std::string_view externName, Type type): SymValue(type), name(externName) {}
     Kind get_kind() const override { return Kind::EXTERN; }
     std::string_view get_name() { return name; }
 private:
@@ -51,7 +58,7 @@ private:
 
 class FloatSymValue: public SymValue {
 public:
-    FloatSymValue(float f): val(f) {}
+    FloatSymValue(float f, Type type): SymValue(type), val(f) {}
     Kind get_kind() const override { return Kind::FLOAT; }
     float get_value() const { return val; }
 private:
@@ -61,7 +68,7 @@ private:
 
 class FuncRefSymValue: public SymValue {
 public:
-    FuncRefSymValue(std::string_view name): name(name) {}
+    FuncRefSymValue(std::string_view name, Type type): SymValue(type), name(name) {}
     Kind get_kind() const override { return Kind::FUNCREF; }
     std::string_view get_name() const { return name; }
 private:
@@ -70,7 +77,7 @@ private:
 
 class IntSymValue: public SymValue {
 public:
-    IntSymValue(int value): val(value) {}
+    IntSymValue(int value, Type type): SymValue(type), val(value) {}
     Kind get_kind() const override { return Kind::INT; }
     int get_value() const { return val; }
 private:
@@ -80,7 +87,7 @@ private:
 
 class StringSymValue: public SymValue {
 public:
-    StringSymValue(llvm::StringRef str): str(str) {}
+    StringSymValue(llvm::StringRef str, Type type): SymValue(type), str(str) {}
     Kind get_kind() const override { return Kind::STR; }
     llvm::StringRef get_string() { return str; }
 private:
@@ -89,6 +96,6 @@ private:
 
 class UnknownSymValue: public SymValue {
 public:
-    UnknownSymValue() {}
+    UnknownSymValue(Type type): SymValue(type) {}
     Kind get_kind() const override { return Kind::UNKNOWN; }
 };

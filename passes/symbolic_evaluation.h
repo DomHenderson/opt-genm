@@ -55,14 +55,13 @@ private:
     std::unordered_set<FlowNode*> TCall(TailCallInst *tailCallInst, FlowNode *node);
     void Phi(PhiInst *phiInst, FlowNode *node);
 
-    void AllocateValue(Inst *inst, Value *value, FlowNode *node);
+    void AllocateValue(Inst *inst, Value *value, Type type, FlowNode *node);
 
     RootFlowNode *CreateRootNode();
     SuccessorFlowNode *CreateTailCallFlowNode(Func_iterator func, std::vector<SymValue*> args, FlowNode *previous);
     SuccessorFlowNode *CreateReturnFlowNode(FlowNode *previous);
     SuccessorFlowNode *CreateBlockFlowNode(Block_iterator block, FlowNode *previous);
     SuccessorFlowNode *CreateFunctionFlowNode(Func_iterator func, std::vector<SymValue*> args, Inst_iterator caller, FlowNode *previous);
-    std::vector<SymValue*> CreateUnknownArgsVector(unsigned size);
 
     Prog *prog;
 

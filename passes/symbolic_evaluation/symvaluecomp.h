@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/type.h"
 #include "symvalue.h"
 
 namespace SymComp {
@@ -9,7 +10,7 @@ namespace SymComp {
         FALSE
     };
     Result FromBool(bool b);
-    SymValue *ToSymValue(Result r);
+    SymValue *ToSymValue(Result r, Type type);
     Result Not(Result r);
     Result EQ(SymValue *lv, SymValue *rv);
     Result NEQ(SymValue *lv, SymValue *rv);

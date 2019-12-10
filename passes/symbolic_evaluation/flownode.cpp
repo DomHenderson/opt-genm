@@ -218,9 +218,14 @@ SymValue *RootFlowNode::GetResult(Inst *inst)
     }
 
     std::cout<<"Result not found for "<<(inst==nullptr?"nullptr":toString(*inst))<<std::endl;
-    UnknownSymValue *result = pool.persist(new UnknownSymValue());
-    AllocateResult(inst, pool.persist(new UnknownSymValue()));
-    return result;
+    if(inst->IsVoid()) {
+        return nullptr;
+    } else {
+        UnknownSymValue *result = pool.persist(new UnknownSymValue(inst->GetType(0)));
+        if(inst->GetNumRets()>1) std::cout<<"Instruction had more than one return value"<<std::endl;
+        AllocateResult(inst, result);
+        return result;
+    }
 }
 
 LogStore &RootFlowNode::get_store()
@@ -261,16 +266,12 @@ Frame &CreateBaseFrame(
     Func &func, 
     SymExPool &pool
 ) {
-    unsigned argCount = func.params().size();
-
-    std::vector<SymValue*> args;
-    args.reserve(argCount);
-
-    for(unsigned i = 0; i < argCount; ++i) {
-        SymValue *value = new UnknownSymValue();
-        pool.persist(value);
-        args.push_back(value);
-    }
+    std::vector<SymValue*> args(func.params().size());
+    std::transform(
+        func.params().begin(), func.params().end(),
+        args.begin(),
+        [](auto t) {return new UnknownSymValue(t);}
+    );
     
     return *pool.persist(new Frame(
         args,

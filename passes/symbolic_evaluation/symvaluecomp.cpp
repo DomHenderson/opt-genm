@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "core/type.h"
 #include "symvalue.h"
 #include "symvaluecomp.h"
 
@@ -10,12 +11,13 @@ Result SymComp::FromBool(bool b)
      return b ? Result::TRUE : Result::FALSE;
 }
 
-SymValue *SymComp::ToSymValue(Result r)
+SymValue *SymComp::ToSymValue(Result r, Type type)
 {
     switch(r) {
-    case Result::TRUE: return new BoolSymValue(true);
-    case Result::UNKNOWN: return new UnknownSymValue();
-    case Result::FALSE: return new BoolSymValue(false);
+    case Result::TRUE: return new BoolSymValue(true, type);
+    case Result::UNKNOWN: return new UnknownSymValue(type);
+    case Result::FALSE: return new BoolSymValue(false, type);
+    default: std::cout<<"Unhandled result type to sym value"<<std::endl; return nullptr;
     }
 }
 
@@ -26,6 +28,7 @@ Result SymComp::Not(Result r)
     case Result::TRUE: return Result::FALSE;
     case Result::UNKNOWN: return Result::UNKNOWN;
     case Result::FALSE: return Result::TRUE;
+    default: std::cout<<"Unhandled result type to invert"<<std::endl; return Result::UNKNOWN;
     }
 }
 

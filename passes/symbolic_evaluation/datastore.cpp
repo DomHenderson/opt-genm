@@ -45,7 +45,7 @@ void MappedAtom::add(Item *item)
     
     case Item::Kind::FLOAT64: std::cout<<"float64"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new UnknownSymValue()),
+            pool.persist(new UnknownSymValue(Type::F64)),
             8
         );
         previous = next;
@@ -54,7 +54,7 @@ void MappedAtom::add(Item *item)
     
     case Item::Kind::INT16: std::cout<<"int16"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt16())),
+            pool.persist(new IntSymValue(item->GetInt16(), Type::I16)),
             2
         );
         previous = next;
@@ -63,7 +63,7 @@ void MappedAtom::add(Item *item)
     
     case Item::Kind::INT32: std::cout<<"int32"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt32())),
+            pool.persist(new IntSymValue(item->GetInt32(), Type::I32)),
             4
         );
         previous = next;
@@ -72,7 +72,7 @@ void MappedAtom::add(Item *item)
 
     case Item::Kind::INT64: std::cout<<"int64"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt64())),
+            pool.persist(new IntSymValue(item->GetInt64(), Type::I64)),
             8
         );
         previous = next;
@@ -81,7 +81,7 @@ void MappedAtom::add(Item *item)
 
     case Item::Kind::INT8: std::cout<<"int8"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt8())),
+            pool.persist(new IntSymValue(item->GetInt8(), Type::I8)),
             1
         );
         previous = next;
@@ -94,7 +94,8 @@ void MappedAtom::add(Item *item)
     
     case Item::Kind::STRING: std::cout<<"string"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new StringSymValue(item->GetString())),
+            //Type?
+            pool.persist(new StringSymValue(item->GetString(), Type::I64)),
             item->GetString().size()
         );
         previous = next;
@@ -107,21 +108,21 @@ void MappedAtom::add(Item *item)
         switch(g->GetKind()) {
         case Global::Kind::ATOM: {
             Atom *a = static_cast<Atom*>(g);
-            value = new AddrSymValue(a->GetName(), 0);
+            value = new AddrSymValue(a->GetName(), 0, Type::I64);
         } break;
         case Global::Kind::BLOCK: {
             Block *b = static_cast<Block*>(g);
             std::cout<<"Block "<<b->GetName()<<std::endl;
-            value = new UnknownSymValue();
+            value = new UnknownSymValue(Type::I64);
         } break;
         case Global::Kind::EXTERN: {
             Extern *e = static_cast<Extern*>(g);
             std::cout<<"Extern "<<e->GetName()<<std::endl;
-            value = new UnknownSymValue();
+            value = new UnknownSymValue(Type::I64);
         } break;
         case Global::Kind::FUNC: {
             Func *f = static_cast<Func*>(g);
-            value = new FuncRefSymValue(f->GetName());
+            value = new FuncRefSymValue(f->GetName(), Type::I64);
         } break;
         case Global::Kind::SYMBOL: {
             Symbol *s = static_cast<Symbol*>(g);
@@ -136,14 +137,15 @@ void MappedAtom::add(Item *item)
         next += 8;
     } break;
     }
+    std::cout<<"Previous: "<<previous<<" Next: "<<next<<std::endl;
 }
 
-SymValue *MappedAtom::get(int offset)
+SymValue *MappedAtom::get(int offset, Type type)
 {
     std::cout<<"getting"<<std::endl;
     if(offset < 0) {
         std::cout<<"Negative offset "<<offset<<std::endl;
-        return new UnknownSymValue();
+        return new UnknownSymValue(type);
     }
     int idx = -1;
     for(const auto &[k,v]: items) {
@@ -158,7 +160,7 @@ SymValue *MappedAtom::get(int offset)
             <<" before first item "
             <<items.begin()->first
             <<std::endl;
-            return new UnknownSymValue();
+            return new UnknownSymValue(type);
     } else {
         auto &item = items[idx];
         if(item.get_kind() == MappedItem::Kind::END) {
@@ -166,7 +168,7 @@ SymValue *MappedAtom::get(int offset)
                 <<offset
                 <<")"
                 <<std::endl;
-            return new UnknownSymValue();
+            return new UnknownSymValue(type);
         } else {
             SymValue *value = item.get_value();
             std::cout<<"Found ";
@@ -179,7 +181,7 @@ SymValue *MappedAtom::get(int offset)
             case SymValue::Kind::STR: std::cout<<"str"; break;
             case SymValue::Kind::UNKNOWN: std::cout<<"unknown"; break;
             }
-            std::cout<<std::endl;
+            std::cout<<(value->get_type()==type?" of correct type":" of incorrect type")<<std::endl;
             return value;
         }
     }
@@ -198,6 +200,7 @@ BaseStore::BaseStore(
         for(auto &atom: data) {
             std::string_view name = atom.GetName();
             MappedAtom mappedAtom(storagePool);
+            std::cout<<"New atom "<<name<<std::endl;
             for(auto item: atom) {
                 mappedAtom.add(item);
             }
@@ -206,7 +209,7 @@ BaseStore::BaseStore(
     }
 }
 
-SymValue *BaseStore::read(SymValue *loc, bool)
+SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, bool)
 {
     switch(loc->get_kind()) {
     case SymValue::Kind::ADDR: {
@@ -221,15 +224,15 @@ SymValue *BaseStore::read(SymValue *loc, bool)
         std::cout<<"Reading at offset of "<<addr->get_offset()<<std::endl;
         return storagePool.persist(
             (atom==nullptr
-                ? new UnknownSymValue()
-                : atom->get(addr->get_offset())
+                ? new UnknownSymValue(type)
+                : atom->get(addr->get_offset(), type)
             )
         );
     } break;
     default:
         std::cout<<"Attempting to read at non-address"<<std::endl;
         return storagePool.persist(
-            new UnknownSymValue()
+            new UnknownSymValue(type)
         );
     }
 }
@@ -256,36 +259,38 @@ LogStore::LogStore(
     std::cout<<"Correct constructor"<<std::endl;
 }
 
-SymValue *LogStore::read(SymValue *loc, bool record)
+SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record)
 {
     SymValue *value = nullptr;
 
     for(int i = actions.size()-1; i >= 0; --i) {
         if(actions[i]->get_kind() == Action::Kind::INVALIDATE) {
-            value = new UnknownSymValue();
+            value = new UnknownSymValue(type);
             break;
         } else if (actions[i]->get_kind() == Action::Kind::READ) {
             auto read = static_cast<Read*>(actions[i].get());
             if(SymComp::EQ(loc, read->get_addr()) == SymComp::Result::TRUE) {
                 value = read->get_value();
+                if(value->get_type() != type) std::cout<<"Load type mismatch with read"<<std::endl;
                 break;
             }
         } else { // action is a write
             auto write = static_cast<Write*>(actions[i].get());
             if(SymComp::EQ(loc,write->get_addr()) == SymComp::Result::UNKNOWN) {
                 std::cout<<"Found potential match"<<std::endl;
-                value = new UnknownSymValue();
+                value = new UnknownSymValue(type);
                 break;
             } else if(SymComp::EQ(loc,write->get_addr()) == SymComp::Result::TRUE) {
                 std::cout<<"Found match"<<std::endl;
                 value = write->get_value();
+                if(value->get_type() != type) std::cout<<"Load type mismatch with write"<<std::endl;
                 break;
             }
         }
     }
     if(value == nullptr) {
         std::cout<<"log read delegated"<<std::endl;
-        value = baseStore.read(loc, false);
+        value = baseStore.read(loc, loadSize, type, false);
     }
     if(record) {
         std::cout<<"Recording read"<<std::endl;

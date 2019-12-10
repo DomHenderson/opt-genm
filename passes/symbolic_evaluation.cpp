@@ -216,19 +216,6 @@ SuccessorFlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
     );
 }
 
-std::vector<SymValue*> SymbolicEvaluation::CreateUnknownArgsVector(
-    unsigned size
-) {
-    std::vector<SymValue*> result;
-    result.reserve(size);
-    for(unsigned i = 0; i < size; ++i) {
-        SymValue *value = new UnknownSymValue();
-        storagePool.persist(value);
-        result.push_back(value);
-    }
-    return result;
-}
-
 // -----------------------------------------------------------------------------
 
 void SymbolicEvaluation::Add(
@@ -239,6 +226,7 @@ void SymbolicEvaluation::Add(
     SymValue *RHS = node->GetResult(addInst->GetRHS());
 
     SymValue *result;
+    Type resultType = addInst->GetType();
 
     switch(LHS->get_kind()) {
     case SymValue::Kind::ADDR: {
@@ -246,11 +234,11 @@ void SymbolicEvaluation::Add(
         switch(RHS->get_kind()) {
         case SymValue::Kind::INT: {
             IntSymValue *rint = static_cast<IntSymValue*>(RHS);
-            result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value());
+            result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), resultType);
         } break;
         default:
             std::cout<<"Adding ADDR and not INT"<<std::endl;
-            result = new UnknownSymValue();
+            result = new UnknownSymValue(resultType);
             break;
         }
     } break;
@@ -259,21 +247,21 @@ void SymbolicEvaluation::Add(
         switch(RHS->get_kind()) {
         case SymValue::Kind::ADDR: {
             AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
-            result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value());
+            result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), resultType);
         } break;
         case SymValue::Kind::INT: {
             IntSymValue *rint = static_cast<IntSymValue*>(RHS);
-            result = new IntSymValue(lint->get_value()+rint->get_value());
+            result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
         } break;
         default:
             std::cout<<"Adding INT and not ADDR or INT"<<std::endl;
-            result = new UnknownSymValue();
+            result = new UnknownSymValue(resultType);
             break;
         }
     } break;
     default:
         std::cout<<"Adding unimplemented combination"<<std::endl;
-        result = new UnknownSymValue();
+        result = new UnknownSymValue(resultType);
         break;
     }
 
@@ -301,7 +289,9 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
 
     if ( v == nullptr ) {
         std::cout<<"Attempted to call nullptr"<<std::endl;
-        node->AllocateResult(callInst,storagePool.persist(new UnknownSymValue()));
+        if(!callInst->IsVoid()) {
+            node->AllocateResult(callInst,storagePool.persist(new UnknownSymValue(*callInst->GetType())));
+        }
         return std::unordered_set<FlowNode*>();
     }
 
@@ -335,7 +325,9 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
         std::cout<<"Calling extern "<<ext->get_name()<<std::endl;
         std::cout<<"Invalidating store"<<std::endl;
         node->get_store().invalidate();
-        node->AllocateResult(callInst, storagePool.persist(new UnknownSymValue()));
+        if(!callInst->IsVoid()){
+            node->AllocateResult(callInst, storagePool.persist(new UnknownSymValue(*callInst->GetType())));
+        }
         return std::nullopt;
     }
 
@@ -395,7 +387,7 @@ void SymbolicEvaluation::Cmp(
         break;
     }
 
-    SymValue *value = SymComp::ToSymValue(result);
+    SymValue *value = SymComp::ToSymValue(result, cmpInst->GetType());
     storagePool.persist(value);
     node->AllocateResult(cmpInst, value);
 }
@@ -445,7 +437,7 @@ void SymbolicEvaluation::Load(
     FlowNode *node
 ) {
     SymValue *addr = node->GetResult(loadInst->GetAddr());
-    node->AllocateResult(loadInst,node->get_store().read(addr));
+    node->AllocateResult(loadInst,node->get_store().read(addr, loadInst->GetLoadSize(), loadInst->GetType()));
 }
 
 void SymbolicEvaluation::Mov(
@@ -455,6 +447,7 @@ void SymbolicEvaluation::Mov(
     AllocateValue(
         movInst,
         movInst->GetArg(),
+        movInst->GetType(),
         node
     );
 }
@@ -464,9 +457,11 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     FlowNode *node
 ) {
     Inst *caller = node->get_frame().get_caller();
-    SymValue *returnValue = node->GetResult(returnInst->GetValue());
     FlowNode *newNode = CreateReturnFlowNode(node);
-    newNode->AllocateResult(caller, returnValue);
+    if(!caller->IsVoid()) {
+        SymValue *returnValue = node->GetResult(returnInst->GetValue());
+        newNode->AllocateResult(caller, returnValue);
+    }
     std::unordered_set<FlowNode*> nodes;
     nodes.insert(newNode);
     return nodes;
@@ -489,7 +484,9 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::TCall(
 
     if ( v == nullptr || v->get_kind() != SymValue::Kind::FUNCREF ) {
         std::cout<<"Called something that isn't a func ref"<<std::endl;
-        node->AllocateResult(tailCallInst,storagePool.persist(new UnknownSymValue()));
+        if(!tailCallInst->IsVoid()) {
+            node->AllocateResult(tailCallInst,storagePool.persist(new UnknownSymValue(*tailCallInst->GetType())));
+        }
         return std::unordered_set<FlowNode*>();
     }
 
@@ -533,6 +530,7 @@ void SymbolicEvaluation::Phi(
     AllocateValue(
         phiInst,
         phiInst->GetValue(block),
+        phiInst->GetType(),
         node
     );
 }
@@ -540,6 +538,7 @@ void SymbolicEvaluation::Phi(
 void SymbolicEvaluation::AllocateValue(
     Inst *inst,
     Value *value,
+    Type type,
     FlowNode *node
 ) {
     SymValue *result;
@@ -549,22 +548,22 @@ void SymbolicEvaluation::AllocateValue(
         switch(g->GetKind()) {
         case Global::Kind::ATOM:
             std::cout<<"Allocating global atom"<<std::endl;
-            result = storagePool.persist(new AddrSymValue(g->GetName(),0));
+            result = storagePool.persist(new AddrSymValue(g->GetName(),0, type));
             break;
         
         case Global::Kind::EXTERN:
             std::cout<<"Allocating global extern"<<std::endl;
-            result = storagePool.persist(new ExternSymValue(g->GetName()));
+            result = storagePool.persist(new ExternSymValue(g->GetName(), type));
             break;
 
         case Global::Kind::FUNC:
             std::cout<<"Allocating global func"<<std::endl;
-            result = storagePool.persist(new FuncRefSymValue(g->GetName()));
+            result = storagePool.persist(new FuncRefSymValue(g->GetName(), type));
             break;
         
         default:
             std::cout<<"Allocating unknown global"<<std::endl;
-            result = storagePool.persist(new UnknownSymValue());
+            result = storagePool.persist(new UnknownSymValue(type));
             break;
         }
     } break;
@@ -580,20 +579,20 @@ void SymbolicEvaluation::AllocateValue(
         switch(c->GetKind()) {
         case Constant::Kind::INT: {
             ConstantInt *ci = static_cast<ConstantInt*>(c);
-            result = new IntSymValue(ci->GetValue());
+            result = new IntSymValue(ci->GetValue(), type);
             storagePool.persist(result);
             std::cout<<"Allocating int "<<ci->GetValue()<<std::endl;
         } break;
         
         case Constant::Kind::FLOAT: {
             ConstantFloat *cf = static_cast<ConstantFloat*>(c);
-            result = new FloatSymValue(cf->GetValue());
+            result = new FloatSymValue(cf->GetValue(), type);
             storagePool.persist(result);
             std::cout<<"Allocating float "<<cf->GetValue()<<std::endl;
         } break;
 
         default:
-            result = new UnknownSymValue();
+            result = new UnknownSymValue(type);
             storagePool.persist(result);
             std::cout<<"Allocating const"<<std::endl;
             break;
@@ -601,7 +600,7 @@ void SymbolicEvaluation::AllocateValue(
     } break;
 
     case Value::Kind::EXPR: {
-        result = new UnknownSymValue();
+        result = new UnknownSymValue(type);
         storagePool.persist(result);
         std::cout<<"Allocating expr"<<std::endl;
     }
