@@ -19,6 +19,8 @@ std::string toString(SymValue::Kind k);
 std::string toString(SymValue &value);
 std::string toString(Type type);
 
+bool isIntType(Type type);
+bool isSigned(Type type);
 unsigned typeLength(Type type);
 std::optional<Type> unsignedOfLength(unsigned length);
 

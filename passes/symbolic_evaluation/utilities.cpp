@@ -271,6 +271,31 @@ std::string toString(Type type)
     }
 }
 
+bool isIntType(Type type)
+{
+    switch(type) {
+    case Type::F32:
+    case Type::F64:
+        return false;
+    }
+    return true;
+}
+
+bool isSigned(Type type)
+{
+    switch(type) {
+    case Type::F32:
+    case Type::F64:
+    case Type::I8:
+    case Type::I16:
+    case Type::I32:
+    case Type::I64:
+    case Type::I128:
+        return true;
+    }
+    return false;
+}
+
 unsigned typeLength(Type type)
 {
     switch(type) {
