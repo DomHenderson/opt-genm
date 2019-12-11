@@ -323,8 +323,13 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
     case SymValue::Kind::EXTERN: {
         auto ext = static_cast<ExternSymValue*>(v);
         std::cout<<"Calling extern "<<ext->get_name()<<std::endl;
-        std::cout<<"Invalidating store"<<std::endl;
-        node->get_store().invalidate();
+        if(!knownSafeExtern(ext->get_name())) {
+            std::cout<<"Invalidating store"<<std::endl;
+            node->get_store().invalidate();
+        } else {
+            std::cout<<"Not invalidating store"<<std::endl;
+        }
+        
         if(!callInst->IsVoid()){
             node->AllocateResult(callInst, storagePool.persist(new UnknownSymValue(*callInst->GetType())));
         }

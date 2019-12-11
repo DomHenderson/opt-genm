@@ -198,6 +198,78 @@ std::string toString(Inst &inst)
     return stream.str(); 
 }
 
+std::string toString(Type type)
+{
+    switch(type) {
+    case Type::F32: return "F32";
+    case Type::F64: return "F64";
+    case Type::I128: return "I128";
+    case Type::I16: return "I16";
+    case Type::I32: return "I32";
+    case Type::I64: return "I64";
+    case Type::I8: return "I8";
+    case Type::U128: return "U128";
+    case Type::U16: return "U16";
+    case Type::U32: return "U32";
+    case Type::U64: return "U64";
+    case Type::U8: return "U8";
+    default: return "Unknown type";
+    }
+}
+
+unsigned typeLength(Type type)
+{
+    switch(type) {
+    case Type::I8:
+    case Type::U8:
+        return 1;
+    
+    case Type::I16:
+    case Type::U16:
+        return 2;
+    
+    case Type::F32:
+    case Type::I32:
+    case Type::U32:
+        return 4;
+    
+    case Type::F64:
+    case Type::I64:
+    case Type::U64:
+        return 4;
+    
+    case Type::I128:
+    case Type::U128:
+        return 8;
+
+    default:
+        std::cout<<"Attempted to find length of unknown type"<<std::endl;
+        return -1;
+    }
+}
+
+std::optional<Type> unsignedOfLength(unsigned length)
+{
+    switch(length) {
+    case 1: return Type::U8;
+    case 2: return Type::U16;
+    case 4: return Type::U32;
+    case 8: return Type::U64;
+    case 16: return Type::U128;
+    default: return std::nullopt;
+    }
+}
+
+bool knownSafeExtern(std::string_view name)
+{
+    std::cout<<"checking if "<<name<<" is safe"<<std::endl;
+    if(name == "strlen") {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 void PrintCodeInfo(Prog *prog)
 {
     std::cout<<"----------------------------------------"<<std::endl;

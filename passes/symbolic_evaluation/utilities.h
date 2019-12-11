@@ -14,6 +14,12 @@ llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 
 std::string toString(Inst::Kind k);
 std::string toString(Inst &inst);
+std::string toString(Type type);
+
+unsigned typeLength(Type type);
+std::optional<Type> unsignedOfLength(unsigned length);
+
+bool knownSafeExtern(std::string_view name);
 
 void PrintCodeInfo(Prog *prog);
 

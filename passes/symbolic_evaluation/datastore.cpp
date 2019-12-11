@@ -9,6 +9,7 @@
 #include "storagepool.h"
 #include "symvalue.h"
 #include "symvaluecomp.h"
+#include "utilities.h"
 
 void MappedAtom::add(Item *item)
 {
@@ -54,7 +55,7 @@ void MappedAtom::add(Item *item)
     
     case Item::Kind::INT16: std::cout<<"int16"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt16(), Type::I16)),
+            pool.persist(new IntSymValue(item->GetInt16(), Type::U16)),
             2
         );
         previous = next;
@@ -63,7 +64,7 @@ void MappedAtom::add(Item *item)
     
     case Item::Kind::INT32: std::cout<<"int32"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt32(), Type::I32)),
+            pool.persist(new IntSymValue(item->GetInt32(), Type::U32)),
             4
         );
         previous = next;
@@ -72,7 +73,7 @@ void MappedAtom::add(Item *item)
 
     case Item::Kind::INT64: std::cout<<"int64"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt64(), Type::I64)),
+            pool.persist(new IntSymValue(item->GetInt64(), Type::U64)),
             8
         );
         previous = next;
@@ -81,7 +82,7 @@ void MappedAtom::add(Item *item)
 
     case Item::Kind::INT8: std::cout<<"int8"<<std::endl;
         items[next] = MappedItem(
-            pool.persist(new IntSymValue(item->GetInt8(), Type::I8)),
+            pool.persist(new IntSymValue(item->GetInt8(), Type::U8)),
             1
         );
         previous = next;
@@ -95,7 +96,7 @@ void MappedAtom::add(Item *item)
     case Item::Kind::STRING: std::cout<<"string"<<std::endl;
         items[next] = MappedItem(
             //Type?
-            pool.persist(new StringSymValue(item->GetString(), Type::I64)),
+            pool.persist(new StringSymValue(item->GetString(), Type::U64)),
             item->GetString().size()
         );
         previous = next;
@@ -108,21 +109,21 @@ void MappedAtom::add(Item *item)
         switch(g->GetKind()) {
         case Global::Kind::ATOM: {
             Atom *a = static_cast<Atom*>(g);
-            value = new AddrSymValue(a->GetName(), 0, Type::I64);
+            value = new AddrSymValue(a->GetName(), 0, Type::U64);
         } break;
         case Global::Kind::BLOCK: {
             Block *b = static_cast<Block*>(g);
             std::cout<<"Block "<<b->GetName()<<std::endl;
-            value = new UnknownSymValue(Type::I64);
+            value = new UnknownSymValue(Type::U64);
         } break;
         case Global::Kind::EXTERN: {
             Extern *e = static_cast<Extern*>(g);
             std::cout<<"Extern "<<e->GetName()<<std::endl;
-            value = new UnknownSymValue(Type::I64);
+            value = new UnknownSymValue(Type::U64);
         } break;
         case Global::Kind::FUNC: {
             Func *f = static_cast<Func*>(g);
-            value = new FuncRefSymValue(f->GetName(), Type::I64);
+            value = new FuncRefSymValue(f->GetName(), Type::U64);
         } break;
         case Global::Kind::SYMBOL: {
             Symbol *s = static_cast<Symbol*>(g);
@@ -181,7 +182,12 @@ SymValue *MappedAtom::get(int offset, Type type)
             case SymValue::Kind::STR: std::cout<<"str"; break;
             case SymValue::Kind::UNKNOWN: std::cout<<"unknown"; break;
             }
-            std::cout<<(value->get_type()==type?" of correct type":" of incorrect type")<<std::endl;
+            if(value->get_type()==type) {
+                std::cout<<" of correct type"<<std::endl;
+            } else {
+                std::cout<<" of incorrect type. Expected "<<toString(type)<<", got "<<toString(value->get_type())<<std::endl;
+                std::cout<<(typeLength(type)==typeLength(value->get_type())?"types same length":"not same length")<<std::endl;
+            }
             return value;
         }
     }
@@ -265,6 +271,7 @@ SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record)
 
     for(int i = actions.size()-1; i >= 0; --i) {
         if(actions[i]->get_kind() == Action::Kind::INVALIDATE) {
+            std::cout<<"Reached invalidate"<<std::endl;
             value = new UnknownSymValue(type);
             break;
         } else if (actions[i]->get_kind() == Action::Kind::READ) {
