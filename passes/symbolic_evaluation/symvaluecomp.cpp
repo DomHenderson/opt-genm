@@ -67,12 +67,6 @@ Result SymComp::EQ(SymValue *lv, SymValue *rv)
             return FromBool(l->get_value() == r->get_value());
         }
 
-        case SymValue::Kind::STR: {
-            auto l = static_cast<StringSymValue*>(lv);
-            auto r = static_cast<StringSymValue*>(rv);
-            return FromBool(l->get_string() == r->get_string());
-        }
-
         default:
             std::cout<<"Default case used in EQ"<<std::endl;
         case SymValue::Kind::UNKNOWN:
@@ -111,7 +105,6 @@ Result SymComp::LT(SymValue* lv, SymValue *rv)
         case SymValue::Kind::ADDR:
         case SymValue::Kind::BOOL:
         case SymValue::Kind::FUNCREF:
-        case SymValue::Kind::STR:
         case SymValue::Kind::UNKNOWN:
             return Result::UNKNOWN;
         }
@@ -143,7 +136,6 @@ Result SymComp::GT(SymValue *lv, SymValue *rv)
         case SymValue::Kind::ADDR:
         case SymValue::Kind::BOOL:
         case SymValue::Kind::FUNCREF:
-        case SymValue::Kind::STR:
         case SymValue::Kind::UNKNOWN:
             return Result::UNKNOWN;
         }

@@ -19,6 +19,7 @@
 #include "core/value.h"
 
 #include "utilities.h"
+#include "symvalue.h"
 
 llvm::ilist<Func>::iterator FindFuncByName(
     std::string_view name,
@@ -196,6 +197,59 @@ std::string toString(Inst &inst)
     }      
 
     return stream.str(); 
+}
+
+std::string toString(SymValue::Kind k)
+{
+    switch(k) {
+    case SymValue::Kind::ADDR: return "ADDR";
+    case SymValue::Kind::BOOL: return "BOOl";
+    case SymValue::Kind::EXTERN: return "EXTERN";
+    case SymValue::Kind::FLOAT: return "FLOAT";
+    case SymValue::Kind::FUNCREF: return "FUNCREF";
+    case SymValue::Kind::INT: return "INT";
+    case SymValue::Kind::UNKNOWN: return "UNKNOWN";
+    default: return "Failed string conversion of symvalue kind";
+    }
+}
+
+std::string toString(SymValue &value)
+{
+    std::ostringstream stream;
+
+    switch(value.get_kind()) {
+    case SymValue::Kind::ADDR: {
+        auto addr = static_cast<AddrSymValue&>(value);
+        stream<<"addr "<<addr.get_name()<<"["<<addr.get_offset()<<"]";
+    } break;
+    case SymValue::Kind::BOOL: {
+        auto b = static_cast<BoolSymValue&>(value);
+        stream<<"bool "<<(b.get_value()?"true":"false");
+    } break;
+    case SymValue::Kind::EXTERN: {
+        auto ext = static_cast<ExternSymValue&>(value);
+        stream<<"extern "<<ext.get_name();
+    } break;
+    case SymValue::Kind::FLOAT: {
+        auto f = static_cast<FloatSymValue&>(value);
+        stream<<"float "<<f.get_value();
+    } break;
+    case SymValue::Kind::FUNCREF: {
+        auto f = static_cast<FuncRefSymValue&>(value);
+        stream<<"funcref "<<f.get_name();
+    } break;
+    case SymValue::Kind::INT: {
+        auto i = static_cast<IntSymValue&>(value);
+        stream<<"int "<<i.get_value();
+    } break;
+    case SymValue::Kind::UNKNOWN: {
+        stream<<"symbolic value";
+    }
+    }
+
+    stream<<" ("<<toString(value.get_type())<<")";
+
+    return stream.str();
 }
 
 std::string toString(Type type)

@@ -6,6 +6,7 @@
 #include <llvm/ADT/ilist.h>
 
 #include "core/inst.h"
+#include "symvalue.h"
 
 class Func;
 class Prog;
@@ -14,6 +15,8 @@ llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 
 std::string toString(Inst::Kind k);
 std::string toString(Inst &inst);
+std::string toString(SymValue::Kind k);
+std::string toString(SymValue &value);
 std::string toString(Type type);
 
 unsigned typeLength(Type type);

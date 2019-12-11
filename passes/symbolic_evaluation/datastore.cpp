@@ -93,14 +93,16 @@ void MappedAtom::add(Item *item)
         next += item->GetSpace();
         break;
     
-    case Item::Kind::STRING: std::cout<<"string"<<std::endl;
-        items[next] = MappedItem(
-            //Type?
-            pool.persist(new StringSymValue(item->GetString(), Type::U64)),
-            item->GetString().size()
-        );
-        previous = next;
-        next += item->GetString().size();
+    case Item::Kind::STRING: std::cout<<"string: "<<std::endl;
+        for(auto& x: item->GetString()) {
+            std::cout<<"'"<<x<<"'("<<static_cast<unsigned int>(x)<<") ";
+            items[next] = MappedItem(
+                pool.persist(new IntSymValue(x, Type::U8)),
+                1
+            );
+            previous = next;
+            next += 1;
+        }
         break;
     
     case Item::Kind::SYMBOL: { std::cout<<"symbol"<<std::endl;
@@ -179,14 +181,13 @@ SymValue *MappedAtom::get(int offset, Type type)
             case SymValue::Kind::FLOAT: std::cout<<"float"; break;
             case SymValue::Kind::FUNCREF: std::cout<<"funcref"; break;
             case SymValue::Kind::INT: std::cout<<"int"; break;
-            case SymValue::Kind::STR: std::cout<<"str"; break;
             case SymValue::Kind::UNKNOWN: std::cout<<"unknown"; break;
             }
             if(value->get_type()==type) {
                 std::cout<<" of correct type"<<std::endl;
             } else {
                 std::cout<<" of incorrect type. Expected "<<toString(type)<<", got "<<toString(value->get_type())<<std::endl;
-                std::cout<<(typeLength(type)==typeLength(value->get_type())?"types same length":"not same length")<<std::endl;
+                return value->copy_cast(type);
             }
             return value;
         }
@@ -215,8 +216,9 @@ BaseStore::BaseStore(
     }
 }
 
-SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, bool)
+SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, bool, unsigned debugCount)
 {
+    std::cout<<debugCount<<" delegations"<<std::endl;
     switch(loc->get_kind()) {
     case SymValue::Kind::ADDR: {
         AddrSymValue *addr = static_cast<AddrSymValue*>(loc);
@@ -265,7 +267,7 @@ LogStore::LogStore(
     std::cout<<"Correct constructor"<<std::endl;
 }
 
-SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record)
+SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record, unsigned debugCount)
 {
     SymValue *value = nullptr;
 
@@ -296,10 +298,10 @@ SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record)
         }
     }
     if(value == nullptr) {
-        std::cout<<"log read delegated"<<std::endl;
-        value = baseStore.read(loc, loadSize, type, false);
+        value = baseStore.read(loc, loadSize, type, false, debugCount+1);
     }
     if(record) {
+        std::cout<<debugCount<<" delegations"<<std::endl;
         std::cout<<"Recording read"<<std::endl;
         actions.push_back(std::make_unique<Read>(loc, value));
     }

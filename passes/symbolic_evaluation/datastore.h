@@ -13,7 +13,7 @@ class SymExPool;
 
 class DataStore {
 public:
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true) = 0;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true, unsigned debugCount = 0) = 0;
     virtual void write(SymValue *addr, SymValue *value) = 0;
     virtual void invalidate() = 0;
 };
@@ -53,7 +53,7 @@ private:
 class BaseStore: public DataStore {
 public:
     BaseStore(Prog &prog, SymExPool &storagePool);
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true) override;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true, unsigned debugCount = 0) override;
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
 private:
@@ -64,7 +64,7 @@ private:
 class LogStore: public DataStore {
 public:
     LogStore(DataStore &store);
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true) override;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true, unsigned debugCount = 0) override;
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
 private:

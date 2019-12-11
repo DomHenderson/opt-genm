@@ -38,7 +38,7 @@ public:
         SymExPool &pool
     );
 
-    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks) = 0;
+    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) = 0;
 
     virtual void AllocateResult(Inst *inst, SymValue *value);
     virtual SymValue *GetResult(Inst *inst) = 0;
@@ -68,7 +68,7 @@ public:
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
 
-    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks) override;
+    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) override;
 
     virtual SymValue *GetResult(Inst *inst) override;
 
@@ -79,7 +79,6 @@ public:
     virtual Func_iterator get_func() override;
 
     virtual std::string get_name() override;
-
 private:
     Inst_iterator startingInst;
 
@@ -95,7 +94,7 @@ public:
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
 
-    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks) override;
+    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) override;
 
     virtual SymValue *GetResult(Inst *inst) override;
 

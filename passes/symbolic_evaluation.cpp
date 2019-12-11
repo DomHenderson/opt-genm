@@ -122,6 +122,10 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
     case Inst::Kind::JCC:
         std::cout<<"Running jcc"<<std::endl;
         return JumpCond(static_cast<JumpCondInst*>(&inst), node);
+    
+    case Inst::Kind::JMP:
+        std::cout<<"Running jmp"<<std::endl;
+        return Jump(static_cast<JumpInst*>(&inst), node);
 
     case Inst::Kind::LD:
         std::cout<<"Running load"<<std::endl;
@@ -133,6 +137,11 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         Mov(static_cast<MovInst*>(&inst), node);
         return std::nullopt;
     
+    case Inst::Kind::MUL:
+        std::cout<<"Running mul"<<std::endl;
+        Mul(static_cast<MulInst*>(&inst), node);
+        return std::nullopt;
+
     case Inst::Kind::PHI:
         std::cout<<"Running phi"<<std::endl;
         Phi(static_cast<PhiInst*>(&inst), node);
@@ -141,6 +150,21 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
     case Inst::Kind::RET:
         std::cout<<"Running ret"<<std::endl;
         return Ret(static_cast<ReturnInst*>(&inst), node);
+
+    case Inst::Kind::SLL:
+        std::cout<<"Running sll"<<std::endl;
+        LeftLogicalShift(static_cast<SllInst*>(&inst), node);
+        return std::nullopt;
+
+    case Inst::Kind::SRA:
+        std::cout<<"Running sra"<<std::endl;
+        RightArithmeticShift(static_cast<SraInst*>(&inst), node);
+        return std::nullopt;
+
+    case Inst::Kind::SRL:
+        std::cout<<"Running srl"<<std::endl;
+        RightLogicalShift(static_cast<SrlInst*>(&inst), node);
+        return std::nullopt;
     
     case Inst::Kind::ST:
         std::cout<<"Running store"<<std::endl;
@@ -249,18 +273,22 @@ void SymbolicEvaluation::Add(
             AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
             result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), resultType);
         } break;
+        case SymValue::Kind::FLOAT: {
+            auto rf = static_cast<FloatSymValue*>(RHS);
+            result = new FloatSymValue(lint->get_value()+rf->get_value(), resultType);
+        } break;
         case SymValue::Kind::INT: {
             IntSymValue *rint = static_cast<IntSymValue*>(RHS);
             result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
         } break;
         default:
-            std::cout<<"Adding INT and not ADDR or INT"<<std::endl;
+            std::cout<<"Unable to calculate INT plus "<<toString(RHS->get_kind())<<std::endl;
             result = new UnknownSymValue(resultType);
             break;
         }
     } break;
     default:
-        std::cout<<"Adding unimplemented combination"<<std::endl;
+        std::cout<<"Unable to calculate "<<toString(LHS->get_kind())<<" plus "<<toString(RHS->get_kind())<<std::endl;
         result = new UnknownSymValue(resultType);
         break;
     }
@@ -274,10 +302,12 @@ void SymbolicEvaluation::Arg(
     FlowNode *node
 ) {
     unsigned int idx = argInst->GetIdx();
+    SymValue *result = node->get_frame().get_arg(idx);
+    std::cout<<(result==nullptr?"nullptr":toString(*result))<<" at index "<<idx<<std::endl;
 
     node->AllocateResult(
         argInst,
-        node->get_frame().get_arg(idx)
+        result
     );
 }
 
@@ -397,6 +427,21 @@ void SymbolicEvaluation::Cmp(
     node->AllocateResult(cmpInst, value);
 }
 
+std::unordered_set<FlowNode*> SymbolicEvaluation::Jump(
+    JumpInst *jumpInst,
+    FlowNode *node
+) {
+    auto block = jumpInst->GetTarget()->getIterator();
+    std::unordered_set<FlowNode*> result;
+    result.insert(
+        CreateBlockFlowNode(
+            block,
+            node
+        )
+    );
+    return result;
+}
+
 std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
     JumpCondInst *jumpCondInst,
     FlowNode *node
@@ -412,6 +457,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
     SymValue *symCond = node->GetResult(cond);
     if(symCond->get_kind() == SymValue::Kind::BOOL) {
         auto b = static_cast<BoolSymValue*>(symCond);
+        std::cout<<"Condition is bool "<<(b->get_value()?"true":"false")<<std::endl;
         Block *block;
         Func *func;
         if(b->get_value()) {
@@ -426,7 +472,25 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         }
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
+    } else if (symCond->get_kind() == SymValue::Kind::INT) {
+        auto i = static_cast<IntSymValue*>(symCond);
+        std::cout<<"Condition is int "<<i->get_value()<<std::endl;
+        Block *block;
+        Func *func;
+        if(i->get_value()) {
+            block = trueBlock;
+            func = trueFunc;
+        } else {
+            block = falseBlock;
+            func = falseFunc;
+        }
+        if(func->GetName() != node->get_func()->GetName()) {
+            std::cout<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<std::endl;
+        }
+        FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
+        result.insert(newNode);
     } else {
+        std::cout<<"Taking both branches"<<std::endl;
         result.insert(
             CreateBlockFlowNode(trueBlock->getIterator(), node)
         );
@@ -435,6 +499,43 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         );
     }
     return result;
+}
+
+void SymbolicEvaluation::LeftLogicalShift(
+    SllInst *sllInst,
+    FlowNode *node
+) {
+    auto lhs = node->GetResult(sllInst->GetLHS());
+    auto rhs = node->GetResult(sllInst->GetRHS());
+
+    SymValue *result;
+    Type resultType = sllInst->GetType();
+
+    switch(rhs->get_kind()) {
+    case SymValue::Kind::INT: {
+        auto r = static_cast<IntSymValue*>(rhs);
+        switch(lhs->get_kind()) {
+        case SymValue::Kind::INT: {
+            auto l = static_cast<IntSymValue*>(lhs);
+            result = new IntSymValue(l->get_value() << r->get_value(), resultType);
+        } break;
+        default:
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<r->get_value()<<std::endl;
+            result = new UnknownSymValue(resultType);
+            break;
+        }
+    } break;
+    default :
+        std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<toString(rhs->get_kind())<<std::endl;
+        result = new UnknownSymValue(resultType);
+        break;
+    }
+
+    storagePool.persist(result);
+    node->AllocateResult(
+        sllInst,
+        result
+    );
 }
 
 void SymbolicEvaluation::Load(
@@ -457,6 +558,112 @@ void SymbolicEvaluation::Mov(
     );
 }
 
+void SymbolicEvaluation::Mul(
+    MulInst *mulInst,
+    FlowNode *node
+) {
+    auto lhs = node->GetResult(mulInst->GetLHS());
+    auto rhs = node->GetResult(mulInst->GetRHS());
+
+    Type returnType = mulInst->GetType();
+
+    switch(lhs->get_kind()) {
+    case SymValue::Kind::FLOAT: {
+        auto l = static_cast<FloatSymValue*>(lhs);
+        std::cout<<"Multiplying float "<<l->get_value();
+        switch(rhs->get_kind()) {
+        case SymValue::Kind::FLOAT: {
+            auto r = static_cast<FloatSymValue*>(rhs);
+            std::cout<<" with float "<<r->get_value();
+            node->AllocateResult(
+                mulInst,
+                storagePool.persist(
+                    new FloatSymValue(
+                        l->get_value() * r->get_value(),
+                        returnType
+                    )
+                )
+            );
+        } break;
+        case SymValue::Kind::INT: {
+            auto r = static_cast<IntSymValue*>(rhs);
+            std::cout<<" with int "<<r->get_value();
+            node->AllocateResult(
+                mulInst,
+                storagePool.persist(
+                    new FloatSymValue(
+                        l->get_value() * r->get_value(),
+                        returnType
+                    )
+                )
+            );
+        } break;
+        default: {
+            std::cout<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+            node->AllocateResult(
+                mulInst,
+                storagePool.persist(
+                    new UnknownSymValue(returnType)
+                )
+            );
+        } break;
+        }
+    } break;
+    case SymValue::Kind::INT: {
+        auto l = static_cast<IntSymValue*>(lhs);
+        std::cout<<"Multiplying int "<<l->get_value();
+        switch(rhs->get_kind()) {
+        case SymValue::Kind::FLOAT: {
+            auto r = static_cast<FloatSymValue*>(rhs);
+            std::cout<<" with float "<<r->get_value();
+            node->AllocateResult(
+                mulInst,
+                storagePool.persist(
+                    new FloatSymValue(
+                        l->get_value() * r->get_value(),
+                        returnType
+                    )
+                )
+            );
+        } break;
+        case SymValue::Kind::INT: {
+            auto r = static_cast<IntSymValue*>(rhs);
+            std::cout<<" with int "<<r->get_value();
+            node->AllocateResult(
+                mulInst,
+                storagePool.persist(
+                    new IntSymValue(
+                        l->get_value() * r->get_value(),
+                        returnType
+                    )
+                )
+            );
+        } break;
+        default: {
+            std::cout<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+            node->AllocateResult(
+                mulInst,
+                storagePool.persist(
+                    new UnknownSymValue(returnType)
+                )
+            );
+        } break;
+        }
+    } break;
+    default:
+        std::cout<<"Multiplying "<<(lhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+        std::cout<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+        node->AllocateResult(
+            mulInst,
+            storagePool.persist(
+                new UnknownSymValue(returnType)
+            )
+        );
+        break;
+    }
+    std::cout<<std::endl;
+}
+
 std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     ReturnInst *returnInst,
     FlowNode *node
@@ -470,6 +677,88 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     std::unordered_set<FlowNode*> nodes;
     nodes.insert(newNode);
     return nodes;
+}
+
+void SymbolicEvaluation::RightArithmeticShift(
+    SraInst *sraInst,
+    FlowNode *node
+) {
+    auto lhs = node->GetResult(sraInst->GetLHS());
+    auto rhs = node->GetResult(sraInst->GetRHS());
+
+    auto rightShift = [](auto l, auto r) {
+        return l >> r;
+    };
+
+    SymValue *result;
+    Type resultType = sraInst->GetType();
+
+    switch(rhs->get_kind()) {
+    case SymValue::Kind::INT: {
+        auto r = static_cast<IntSymValue*>(rhs);
+        switch(lhs->get_kind()) {
+        case SymValue::Kind::INT: {
+            auto l = static_cast<IntSymValue*>(lhs);
+            result = new IntSymValue(rightShift(l->get_value(), r->get_value()), resultType);
+        } break;
+        default:
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->get_value()<<std::endl;
+            result = new UnknownSymValue(resultType);
+            break;
+        }
+    } break;
+    default :
+        std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<toString(rhs->get_kind())<<std::endl;
+        result = new UnknownSymValue(resultType);
+        break;
+    }
+
+    storagePool.persist(result);
+    node->AllocateResult(
+        sraInst,
+        result
+    );
+}
+
+void SymbolicEvaluation::RightLogicalShift(
+    SrlInst *srlInst,
+    FlowNode *node
+) {
+    auto lhs = node->GetResult(srlInst->GetLHS());
+    auto rhs = node->GetResult(srlInst->GetRHS());
+
+    auto rightShift = [](auto l, auto r) {
+        return l >> r;
+    };
+
+    SymValue *result;
+    Type resultType = srlInst->GetType();
+
+    switch(rhs->get_kind()) {
+    case SymValue::Kind::INT: {
+        auto r = static_cast<IntSymValue*>(rhs);
+        switch(lhs->get_kind()) {
+        case SymValue::Kind::INT: {
+            auto l = static_cast<IntSymValue*>(lhs);
+            result = new IntSymValue(rightShift(l->get_value(), r->get_value()), resultType);
+        } break;
+        default:
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->get_value()<<std::endl;
+            result = new UnknownSymValue(resultType);
+            break;
+        }
+    } break;
+    default :
+        std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<toString(rhs->get_kind())<<std::endl;
+        result = new UnknownSymValue(resultType);
+        break;
+    }
+
+    storagePool.persist(result);
+    node->AllocateResult(
+        srlInst,
+        result
+    );
 }
 
 void SymbolicEvaluation::Store(
@@ -530,7 +819,10 @@ void SymbolicEvaluation::Phi(
 
     Block *block = node->ResolvePhiBlocks(blocks);
 
-    if(block == nullptr) return;
+    if(block == nullptr) {
+        std::cout<<"Phi resolution failed. Not allocating"<<std::endl;
+        return;
+    }
 
     AllocateValue(
         phiInst,

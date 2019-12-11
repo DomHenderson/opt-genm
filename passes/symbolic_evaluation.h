@@ -47,10 +47,15 @@ private:
     void Arg(ArgInst *argInst, FlowNode *node);
     std::optional<std::unordered_set<FlowNode*>> Call(CallInst *callInst, FlowNode *node);
     void Cmp(CmpInst *cmpInst, FlowNode *node);
+    std::unordered_set<FlowNode*> Jump(JumpInst *jumpInst, FlowNode *node);
     std::unordered_set<FlowNode*> JumpCond(JumpCondInst *jumpCondInst, FlowNode *node);
+    void LeftLogicalShift(SllInst *sllInst, FlowNode *node);
     void Load(LoadInst *loadInst, FlowNode *node);
     void Mov(MovInst *movInst, FlowNode *node);
+    void Mul(MulInst *mulInst, FlowNode *node);
     std::unordered_set<FlowNode*> Ret(ReturnInst *returnInst, FlowNode *node);
+    void RightArithmeticShift(SraInst *sraInst, FlowNode *node);
+    void RightLogicalShift(SrlInst *srlInst, FlowNode *node);
     void Store(StoreInst *storeInst, FlowNode *node);
     std::unordered_set<FlowNode*> TCall(TailCallInst *tailCallInst, FlowNode *node);
     void Phi(PhiInst *phiInst, FlowNode *node);

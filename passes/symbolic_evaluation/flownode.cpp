@@ -113,17 +113,22 @@ SuccessorFlowNode *SuccessorFlowNode::CreateReturnNode()
     return node;
 }
 
-Block *SuccessorFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks)
+Block *SuccessorFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf)
 {
-    std::cout<<"Resolving phi"<<std::endl;
-    Block *block = &*get_block();
-    auto iter = std::find(blocks.begin(), blocks.end(), block);
-    if(iter == blocks.end()) {
-        std::cout<<"Delegating"<<std::endl;
-        return previousNode.ResolvePhiBlocks(blocks);
+    if(includeSelf) {
+        std::cout<<"Resolving phi"<<std::endl;
+        Block *block = &*get_block();
+        auto iter = std::find(blocks.begin(), blocks.end(), block);
+        if(iter == blocks.end()) {
+            std::cout<<"Delegating"<<std::endl;
+            return previousNode.ResolvePhiBlocks(blocks);
+        } else {
+            std::cout<<"Resolved"<<std::endl;
+            return *iter;
+        }
     } else {
-        std::cout<<"Resolved"<<std::endl;
-        return *iter;
+        std::cout<<"Looking at previous node for phi"<<std::endl;
+        return previousNode.ResolvePhiBlocks(blocks, true);
     }
 }
 
@@ -195,17 +200,22 @@ SuccessorFlowNode *RootFlowNode::CreateReturnNode()
     return nullptr;
 }
 
-Block *RootFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks)
+Block *RootFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf)
 {
-    std::cout<<"Reached root resolving phi"<<std::endl;
-    Block *block = &*get_block();
-    auto iter = std::find(blocks.begin(), blocks.end(), block);
-    if(iter == blocks.end()) {
-        std::cout<<"Failed to resolve"<<std::endl;
-        return nullptr;
+    if(includeSelf) {
+        std::cout<<"Reached root resolving phi"<<std::endl;
+        Block *block = &*get_block();
+        auto iter = std::find(blocks.begin(), blocks.end(), block);
+        if(iter == blocks.end()) {
+            std::cout<<"Failed to resolve"<<std::endl;
+            return nullptr;
+        } else {
+            std::cout<<"Resolved"<<std::endl;
+            return *iter;
+        }
     } else {
-        std::cout<<"Resolved"<<std::endl;
-        return *iter;
+        std::cout<<"No previous node with which to resolve phi"<<std::endl;
+        return nullptr;
     }
 }
 
