@@ -8,6 +8,9 @@
 #include <unordered_set>
 #include <vector>
 
+#include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/APInt.h>
+
 #include "core/atom.h"
 #include "core/block.h"
 #include "core/constant.h"
@@ -259,6 +262,7 @@ void SymbolicEvaluation::Add(
         case SymValue::Kind::INT: {
             IntSymValue *rint = static_cast<IntSymValue*>(RHS);
             result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), resultType);
+            std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
         } break;
         default:
             std::cout<<"Adding ADDR and not INT"<<std::endl;
@@ -272,14 +276,31 @@ void SymbolicEvaluation::Add(
         case SymValue::Kind::ADDR: {
             AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
             result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), resultType);
+            std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
         } break;
         case SymValue::Kind::FLOAT: {
             auto rf = static_cast<FloatSymValue*>(RHS);
-            result = new FloatSymValue(lint->get_value()+rf->get_value(), resultType);
+            if(resultType == Type::F64) {
+                auto resultValue = llvm::APFloat(static_cast<double>(0));
+                resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                resultValue = resultValue + rf->get_value();
+                result = new FloatSymValue(resultValue, resultType);
+                std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+            }else if (resultType == Type::F32) {
+                auto resultValue = llvm::APFloat(static_cast<float>(0));
+                resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                resultValue = resultValue + rf->get_value();
+                result = new FloatSymValue(resultValue, resultType);
+                std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+            } else {
+                std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                result = new UnknownSymValue(resultType);
+            }
         } break;
         case SymValue::Kind::INT: {
             IntSymValue *rint = static_cast<IntSymValue*>(RHS);
             result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
+            std::cout<<lint->toString()<<"+"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
         } break;
         default:
             std::cout<<"Unable to calculate INT plus "<<toString(RHS->get_kind())<<std::endl;
@@ -474,10 +495,10 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         result.insert(newNode);
     } else if (symCond->get_kind() == SymValue::Kind::INT) {
         auto i = static_cast<IntSymValue*>(symCond);
-        std::cout<<"Condition is int "<<i->get_value()<<std::endl;
+        std::cout<<"Condition is int "<<i->toString()<<std::endl;
         Block *block;
         Func *func;
-        if(i->get_value()) {
+        if(i->get_value().getBoolValue()) {
             block = trueBlock;
             func = trueFunc;
         } else {
@@ -518,9 +539,10 @@ void SymbolicEvaluation::LeftLogicalShift(
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lhs);
             result = new IntSymValue(l->get_value() << r->get_value(), resultType);
+            std::cout<<l->toString()<<"<<"<<r->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<r->get_value()<<std::endl;
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<r->toString()<<std::endl;
             result = new UnknownSymValue(resultType);
             break;
         }
@@ -565,36 +587,54 @@ void SymbolicEvaluation::Mul(
     auto lhs = node->GetResult(mulInst->GetLHS());
     auto rhs = node->GetResult(mulInst->GetRHS());
 
-    Type returnType = mulInst->GetType();
+    Type resultType = mulInst->GetType();
 
     switch(lhs->get_kind()) {
     case SymValue::Kind::FLOAT: {
         auto l = static_cast<FloatSymValue*>(lhs);
-        std::cout<<"Multiplying float "<<l->get_value();
+        std::cout<<"Multiplying float "<<l->toString();
         switch(rhs->get_kind()) {
         case SymValue::Kind::FLOAT: {
             auto r = static_cast<FloatSymValue*>(rhs);
-            std::cout<<" with float "<<r->get_value();
+            std::cout<<" with float "<<r->toString();
+            auto result = new FloatSymValue(
+                l->get_value() * r->get_value(),
+                resultType
+            );
+            std::cout<<" to produce "<<result->toString();
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
-                    new FloatSymValue(
-                        l->get_value() * r->get_value(),
-                        returnType
-                    )
+                    result
                 )
             );
         } break;
         case SymValue::Kind::INT: {
             auto r = static_cast<IntSymValue*>(rhs);
-            std::cout<<" with int "<<r->get_value();
+            std::cout<<" with int "<<r->toString();
+            SymValue *result;
+            if(resultType == Type::F64) {
+                auto resultValue = llvm::APFloat(static_cast<double>(0));
+                resultValue.convertFromAPInt(r->get_value(), isSigned(r->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                resultValue = resultValue + l->get_value();
+                result = new FloatSymValue(resultValue, resultType);
+                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+            }else if (resultType == Type::F32) {
+                auto resultValue = llvm::APFloat(static_cast<float>(0));
+                resultValue.convertFromAPInt(r->get_value(), isSigned(r->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                resultValue = resultValue + l->get_value();
+                result = new FloatSymValue(resultValue, resultType);
+                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+            } else {
+                std::cout<<std::endl;
+                std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                result = new UnknownSymValue(resultType);
+            }
+            
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
-                    new FloatSymValue(
-                        l->get_value() * r->get_value(),
-                        returnType
-                    )
+                    result
                 )
             );
         } break;
@@ -603,7 +643,7 @@ void SymbolicEvaluation::Mul(
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
-                    new UnknownSymValue(returnType)
+                    new UnknownSymValue(resultType)
                 )
             );
         } break;
@@ -611,31 +651,48 @@ void SymbolicEvaluation::Mul(
     } break;
     case SymValue::Kind::INT: {
         auto l = static_cast<IntSymValue*>(lhs);
-        std::cout<<"Multiplying int "<<l->get_value();
+        std::cout<<"Multiplying int "<<l->toString();
         switch(rhs->get_kind()) {
         case SymValue::Kind::FLOAT: {
             auto r = static_cast<FloatSymValue*>(rhs);
-            std::cout<<" with float "<<r->get_value();
+            std::cout<<" with float "<<r->toString();
+            SymValue *result;
+            if(resultType == Type::F64) {
+                auto resultValue = llvm::APFloat(static_cast<double>(0));
+                resultValue.convertFromAPInt(l->get_value(), isSigned(l->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                resultValue = resultValue + r->get_value();
+                result = new FloatSymValue(resultValue, resultType);
+                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+            }else if (resultType == Type::F32) {
+                auto resultValue = llvm::APFloat(static_cast<float>(0));
+                resultValue.convertFromAPInt(l->get_value(), isSigned(l->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                resultValue = resultValue + r->get_value();
+                result = new FloatSymValue(resultValue, resultType);
+                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+            } else {
+                std::cout<<std::endl;
+                std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                result = new UnknownSymValue(resultType);
+            }
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
-                    new FloatSymValue(
-                        l->get_value() * r->get_value(),
-                        returnType
-                    )
+                    result
                 )
             );
         } break;
         case SymValue::Kind::INT: {
             auto r = static_cast<IntSymValue*>(rhs);
-            std::cout<<" with int "<<r->get_value();
+            std::cout<<" with int "<<r->toString();
+            IntSymValue *result = new IntSymValue(
+                l->get_value() * r->get_value(),
+                resultType
+            );
+            std::cout<<" to produce "<<result->toString();
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
-                    new IntSymValue(
-                        l->get_value() * r->get_value(),
-                        returnType
-                    )
+                    result
                 )
             );
         } break;
@@ -644,7 +701,7 @@ void SymbolicEvaluation::Mul(
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
-                    new UnknownSymValue(returnType)
+                    new UnknownSymValue(resultType)
                 )
             );
         } break;
@@ -656,7 +713,7 @@ void SymbolicEvaluation::Mul(
         node->AllocateResult(
             mulInst,
             storagePool.persist(
-                new UnknownSymValue(returnType)
+                new UnknownSymValue(resultType)
             )
         );
         break;
@@ -686,10 +743,6 @@ void SymbolicEvaluation::RightArithmeticShift(
     auto lhs = node->GetResult(sraInst->GetLHS());
     auto rhs = node->GetResult(sraInst->GetRHS());
 
-    auto rightShift = [](auto l, auto r) {
-        return l >> r;
-    };
-
     SymValue *result;
     Type resultType = sraInst->GetType();
 
@@ -699,10 +752,11 @@ void SymbolicEvaluation::RightArithmeticShift(
         switch(lhs->get_kind()) {
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lhs);
-            result = new IntSymValue(rightShift(l->get_value(), r->get_value()), resultType);
+            result = new IntSymValue(l->get_value().ashr(r->get_value()), resultType);
+            std::cout<<"Shifted "<<l->toString()<<" right arithmetically by "<<r->toString()<<" to produce "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->get_value()<<std::endl;
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->toString()<<std::endl;
             result = new UnknownSymValue(resultType);
             break;
         }
@@ -727,10 +781,6 @@ void SymbolicEvaluation::RightLogicalShift(
     auto lhs = node->GetResult(srlInst->GetLHS());
     auto rhs = node->GetResult(srlInst->GetRHS());
 
-    auto rightShift = [](auto l, auto r) {
-        return l >> r;
-    };
-
     SymValue *result;
     Type resultType = srlInst->GetType();
 
@@ -740,10 +790,11 @@ void SymbolicEvaluation::RightLogicalShift(
         switch(lhs->get_kind()) {
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lhs);
-            result = new IntSymValue(rightShift(l->get_value(), r->get_value()), resultType);
+            result = new IntSymValue(l->get_value().lshr(r->get_value()), resultType);
+            std::cout<<"Shifted "<<l->toString()<<" right logically by "<<r->toString()<<" to produce "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->get_value()<<std::endl;
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->toString()<<std::endl;
             result = new UnknownSymValue(resultType);
             break;
         }
@@ -845,7 +896,7 @@ void SymbolicEvaluation::AllocateValue(
         switch(g->GetKind()) {
         case Global::Kind::ATOM:
             std::cout<<"Allocating global atom"<<std::endl;
-            result = storagePool.persist(new AddrSymValue(g->GetName(),0, type));
+            result = storagePool.persist(new AddrSymValue(g->GetName(),llvm::APInt(bitLength(type),0,isSigned(type)), type));
             break;
         
         case Global::Kind::EXTERN:
@@ -877,6 +928,7 @@ void SymbolicEvaluation::AllocateValue(
         case Constant::Kind::INT: {
             ConstantInt *ci = static_cast<ConstantInt*>(c);
             result = new IntSymValue(ci->GetValue(), type);
+            if(!isIntType(type)) { std::cout<<"Allocating constant int of non-int type"<<std::endl; }
             storagePool.persist(result);
             std::cout<<"Allocating int "<<ci->GetValue()<<std::endl;
         } break;
@@ -884,6 +936,7 @@ void SymbolicEvaluation::AllocateValue(
         case Constant::Kind::FLOAT: {
             ConstantFloat *cf = static_cast<ConstantFloat*>(c);
             result = new FloatSymValue(cf->GetValue(), type);
+            if(isIntType(type)) { std::cout<<"Allocating constant float of non-float type"<<std::endl; }
             storagePool.persist(result);
             std::cout<<"Allocating float "<<cf->GetValue()<<std::endl;
         } break;

@@ -5,6 +5,8 @@
 #include <memory>
 #include <string_view>
 
+#include <llvm/ADT/APInt.h>
+
 #include "core/atom.h"
 #include "core/type.h"
 #include "symvalue.h"
@@ -39,7 +41,8 @@ class MappedAtom {
 public:
     MappedAtom(SymExPool &pool): pool(pool) {}
     void add(Item *item);
-    SymValue *get(int offset, Type type);
+    SymValue *get(int offset, size_t loadSize, Type type);
+    SymValue *get(llvm::APInt offset, size_t loadSize, Type type);
 private:
     std::map<unsigned,MappedItem> items;
     unsigned next = 0;

@@ -1,5 +1,7 @@
 #include <iostream>
+#include <limits>
 
+#include <llvm/ADT/APInt.h>
 #include <llvm/ADT/StringRef.h>
 
 #include "core/atom.h"
@@ -111,7 +113,8 @@ void MappedAtom::add(Item *item)
         switch(g->GetKind()) {
         case Global::Kind::ATOM: {
             Atom *a = static_cast<Atom*>(g);
-            value = new AddrSymValue(a->GetName(), 0, Type::U64);
+            Type type = Type::U64;
+            value = new AddrSymValue(a->GetName(), llvm::APInt(bitLength(type), 0, isSigned(type)), Type::U64);
         } break;
         case Global::Kind::BLOCK: {
             Block *b = static_cast<Block*>(g);
@@ -143,7 +146,7 @@ void MappedAtom::add(Item *item)
     std::cout<<"Previous: "<<previous<<" Next: "<<next<<std::endl;
 }
 
-SymValue *MappedAtom::get(int offset, Type type)
+SymValue *MappedAtom::get(int offset, size_t loadSize, Type type)
 {
     std::cout<<"getting"<<std::endl;
     if(offset < 0) {
@@ -151,12 +154,19 @@ SymValue *MappedAtom::get(int offset, Type type)
         return new UnknownSymValue(type);
     }
     int idx = -1;
+    int end = -1;
+
+    //Find which section the offset lies within
+    //The index returned is the byte offset of the start of the item
     for(const auto &[k,v]: items) {
         if(offset < k) {
+            end = k;
             break;
         }
         idx = k;
     }
+
+    //Last section has no end so if one wasn't found it's before the first
     if(idx == -1) {
         std::cout<<"Non-negative offset "
             <<offset
@@ -172,27 +182,54 @@ SymValue *MappedAtom::get(int offset, Type type)
                 <<")"
                 <<std::endl;
             return new UnknownSymValue(type);
-        } else {
+        } else { //offset fell within a data item
+            if(offset + loadSize > end) {
+                std::cout<<"WARNING: attempted to load across boundary"<<std::endl;
+                return new UnknownSymValue(type);
+            }
             SymValue *value = item.get_value();
-            std::cout<<"Found ";
-            switch(value->get_kind()) {
-            case SymValue::Kind::ADDR: std::cout<<"addr"; break;
-            case SymValue::Kind::BOOL: std::cout<<"bool"; break;
-            case SymValue::Kind::FLOAT: std::cout<<"float"; break;
-            case SymValue::Kind::FUNCREF: std::cout<<"funcref"; break;
-            case SymValue::Kind::INT: std::cout<<"int"; break;
-            case SymValue::Kind::UNKNOWN: std::cout<<"unknown"; break;
-            }
-            if(value->get_type()==type) {
-                std::cout<<" of correct type"<<std::endl;
+            if(offset == idx) { //offset exactly references a data item
+                std::cout<<"Found ";
+                switch(value->get_kind()) {
+                case SymValue::Kind::ADDR: std::cout<<"addr"; break;
+                case SymValue::Kind::BOOL: std::cout<<"bool"; break;
+                case SymValue::Kind::FLOAT: std::cout<<"float"; break;
+                case SymValue::Kind::FUNCREF: std::cout<<"funcref"; break;
+                case SymValue::Kind::INT: std::cout<<"int"; break;
+                case SymValue::Kind::UNKNOWN: std::cout<<"unknown"; break;
+                }
+                if(value->get_type()==type) {
+                    std::cout<<" of correct type"<<std::endl;
+                } else {
+                    std::cout<<" of incorrect type. Expected "<<toString(type)<<", got "<<toString(value->get_type())<<std::endl;
+                    value = value->copy_cast(type);
+                }
+                std::cout<<"Returning "<<(value==nullptr?"nullptr":toString(*value))<<std::endl;
+                return value;
+            } else if(idx + byteLength(value->get_type()) <= offset) {
+                std::cout<<"Reading empty space"<<std::endl;
+                if(isIntType(type)) {
+                    return new IntSymValue(0, type);
+                } else {
+                    std::cout<<"WARNING: attempting to read denormalised floating point from empty space"<<std::endl;
+                    return new UnknownSymValue(type);
+                }
             } else {
-                std::cout<<" of incorrect type. Expected "<<toString(type)<<", got "<<toString(value->get_type())<<std::endl;
-                return value->copy_cast(type);
+                std::cout<<"WARNING: attempting to read from part way into an item"<<std::endl;
+                return new UnknownSymValue(type);
             }
-            return value;
         }
     }
-    
+}
+
+SymValue *MappedAtom::get(llvm::APInt offset, size_t loadSize, Type type)
+{
+    auto o = offset.getLimitedValue();
+    if(o > std::numeric_limits<int>::max()) {
+        std::cout<<"WARNING: attempting to read at large offset"<<std::endl;
+    }
+    int i = static_cast<int>(o);
+    return get(i, loadSize, type);
 }
 
 //-----------------------------------------------------------------------------
@@ -219,25 +256,28 @@ BaseStore::BaseStore(
 SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, bool, unsigned debugCount)
 {
     std::cout<<debugCount<<" delegations"<<std::endl;
-    switch(loc->get_kind()) {
-    case SymValue::Kind::ADDR: {
+
+    if(loc->get_kind() == SymValue::Kind::ADDR) {
         AddrSymValue *addr = static_cast<AddrSymValue*>(loc);
+
         auto a = atoms.find(addr->get_name());
-        MappedAtom *atom = a == atoms.end()
-            ? nullptr
-            : &(a->second);
-        std::cout<<"Reading from atom "
-            <<(atom==nullptr?"not found":addr->get_name())
-            <<std::endl;
-        std::cout<<"Reading at offset of "<<addr->get_offset()<<std::endl;
-        return storagePool.persist(
-            (atom==nullptr
-                ? new UnknownSymValue(type)
-                : atom->get(addr->get_offset(), type)
-            )
-        );
-    } break;
-    default:
+        if(a==atoms.end()) {
+            std::cout<<"WARNING: Atom not found"<<std::endl;
+            return storagePool.persist(
+                new UnknownSymValue(type)
+            );
+        } else {
+            MappedAtom &atom = a->second;
+            std::cout<<"Reading from atom "
+                <<a->first
+                <<" at offset of "<<addr->get_offset().getLimitedValue()
+                <<std::endl;
+            
+            return storagePool.persist(
+                atom.get(addr->get_offset(), loadSize, type)
+            );
+        }
+    } else {
         std::cout<<"Attempting to read at non-address"<<std::endl;
         return storagePool.persist(
             new UnknownSymValue(type)

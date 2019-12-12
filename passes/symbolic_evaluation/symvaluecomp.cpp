@@ -52,7 +52,7 @@ Result SymComp::EQ(SymValue *lv, SymValue *rv)
         case SymValue::Kind::FLOAT: {
             auto l = static_cast<FloatSymValue*>(lv);
             auto r = static_cast<FloatSymValue*>(rv);
-            return FromBool(l->get_value() == r->get_value());
+            return FromBool(l->get_value().compare(r->get_value()) == llvm::APFloatBase::cmpEqual);
         }
 
         case SymValue::Kind::FUNCREF: {
@@ -91,13 +91,13 @@ Result SymComp::LT(SymValue* lv, SymValue *rv)
         case SymValue::Kind::FLOAT: {
             auto l = static_cast<FloatSymValue*>(lv);
             auto r = static_cast<FloatSymValue*>(rv);
-            return FromBool(l->get_value() < r->get_value());
+            return FromBool(l->get_value().compare(r->get_value()) == llvm::APFloatBase::cmpLessThan);
         }
 
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lv);
             auto r = static_cast<IntSymValue*>(rv);
-            return FromBool(l->get_value() < r->get_value());
+            return FromBool(l->get_value().slt(r->get_value()));
         }
 
         default:
@@ -122,13 +122,13 @@ Result SymComp::GT(SymValue *lv, SymValue *rv)
         case SymValue::Kind::FLOAT: {
             auto l = static_cast<FloatSymValue*>(lv);
             auto r = static_cast<FloatSymValue*>(rv);
-            return FromBool(l->get_value() > r->get_value());
+            return FromBool(l->get_value().compare(r->get_value()) == llvm::APFloatBase::cmpGreaterThan);
         }
 
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lv);
             auto r = static_cast<IntSymValue*>(rv);
-            return FromBool(l->get_value() > r->get_value());
+            return FromBool(l->get_value().sgt(r->get_value()));
         }
 
         default:

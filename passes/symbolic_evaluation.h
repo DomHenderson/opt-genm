@@ -74,7 +74,7 @@ private:
 
     bool carryOn = true;
     unsigned int count = 0;
-    unsigned int limit = 1000;
+    unsigned int limit = 10000;
 
     //Anything which needs to exist on the heap for the duration of the pass 
     //gets owned by the storage pool which then frees them all at the end

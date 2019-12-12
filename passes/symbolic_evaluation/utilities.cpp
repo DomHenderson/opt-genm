@@ -220,7 +220,7 @@ std::string toString(SymValue &value)
     switch(value.get_kind()) {
     case SymValue::Kind::ADDR: {
         auto addr = static_cast<AddrSymValue&>(value);
-        stream<<"addr "<<addr.get_name()<<"["<<addr.get_offset()<<"]";
+        stream<<"addr "<<addr.toString();
     } break;
     case SymValue::Kind::BOOL: {
         auto b = static_cast<BoolSymValue&>(value);
@@ -232,7 +232,7 @@ std::string toString(SymValue &value)
     } break;
     case SymValue::Kind::FLOAT: {
         auto f = static_cast<FloatSymValue&>(value);
-        stream<<"float "<<f.get_value();
+        stream<<"float "<<f.toString();
     } break;
     case SymValue::Kind::FUNCREF: {
         auto f = static_cast<FuncRefSymValue&>(value);
@@ -240,7 +240,7 @@ std::string toString(SymValue &value)
     } break;
     case SymValue::Kind::INT: {
         auto i = static_cast<IntSymValue&>(value);
-        stream<<"int "<<i.get_value();
+        stream<<"int "<<i.toString();
     } break;
     case SymValue::Kind::UNKNOWN: {
         stream<<"symbolic value";
@@ -296,7 +296,12 @@ bool isSigned(Type type)
     return false;
 }
 
-unsigned typeLength(Type type)
+unsigned bitLength(Type type)
+{
+    return 8*byteLength(type);
+}
+
+unsigned byteLength(Type type)
 {
     switch(type) {
     case Type::I8:
@@ -348,6 +353,7 @@ bool knownSafeExtern(std::string_view name)
         return false;
     }
 }
+
 
 void PrintCodeInfo(Prog *prog)
 {

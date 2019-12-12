@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <string_view>
 
+#include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/APInt.h>
 #include <llvm/ADT/StringRef.h>
 
 #include "core/type.h"
@@ -29,14 +32,15 @@ private:
 
 class AddrSymValue: public SymValue {
 public:
-    AddrSymValue(std::string_view atomName, int offset, Type type): SymValue(type), name(atomName), offset(offset) {}
+    AddrSymValue(std::string_view atomName, llvm::APInt offset, Type type);
     Kind get_kind() const override { return Kind::ADDR; }
     std::string_view get_name() { return name; }
-    int get_offset() { return offset; }
+    llvm::APInt get_offset() { return offset; }
     virtual AddrSymValue *copy_cast(Type type) const override { return new AddrSymValue(name, offset, type); }
+    std::string toString() const;
 private:
     std::string_view name;
-    int offset;
+    llvm::APInt offset;
 };
 
 class BoolSymValue: public SymValue {
@@ -61,13 +65,15 @@ private:
 
 class FloatSymValue: public SymValue {
 public:
-    FloatSymValue(float f, Type type): SymValue(type), val(f) {}
+    explicit FloatSymValue(float f, Type type);
+    explicit FloatSymValue(double d, Type type);
+    FloatSymValue(llvm::APFloat f, Type type): SymValue(type), val(f) {}
     Kind get_kind() const override { return Kind::FLOAT; }
-    float get_value() const { return val; }
+    llvm::APFloat get_value() const { return val; }
     virtual FloatSymValue *copy_cast(Type type) const override { return new FloatSymValue(val, type); }
+    std::string toString() const;
 private:
-    // llvm::APFloat
-    const float val;
+    llvm::APFloat val;
 };
 
 class FuncRefSymValue: public SymValue {
@@ -82,13 +88,14 @@ private:
 
 class IntSymValue: public SymValue {
 public:
-    IntSymValue(int value, Type type): SymValue(type), val(value) {}
+    IntSymValue(uint64_t value, Type type);
+    IntSymValue(llvm::APInt vale, Type type);
     Kind get_kind() const override { return Kind::INT; }
-    int get_value() const { return val; }
-    virtual IntSymValue *copy_cast(Type type) const override { return new IntSymValue(val, type); }
+    llvm::APInt get_value() const { return val; }
+    virtual IntSymValue *copy_cast(Type type) const override;
+    std::string toString() const;
 private:
-    // llvm::APInt, llvm:APSInt
-    const int val;
+    const llvm::APInt val;
 };
 
 class UnknownSymValue: public SymValue {
