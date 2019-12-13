@@ -89,7 +89,7 @@ private:
 class IntSymValue: public SymValue {
 public:
     IntSymValue(uint64_t value, Type type);
-    IntSymValue(llvm::APInt vale, Type type);
+    IntSymValue(llvm::APInt value, Type type);
     Kind get_kind() const override { return Kind::INT; }
     llvm::APInt get_value() const { return val; }
     virtual IntSymValue *copy_cast(Type type) const override;
