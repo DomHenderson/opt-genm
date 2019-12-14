@@ -447,7 +447,7 @@ void PrintDataInfo(Prog *prog)
                     break;
                 
                 case Item::Kind::SYMBOL:
-                    std::cout<<"Symbol "<<item->GetSymbol()<<std::endl;
+                    std::cout<<"Symbol "<<item->GetSymbol()->GetName()<<std::endl;
                     break;
                 }
             }
