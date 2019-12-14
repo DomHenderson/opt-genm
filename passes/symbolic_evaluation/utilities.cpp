@@ -320,11 +320,11 @@ unsigned byteLength(Type type)
     case Type::F64:
     case Type::I64:
     case Type::U64:
-        return 4;
+        return 8;
     
     case Type::I128:
     case Type::U128:
-        return 8;
+        return 16;
 
     default:
         std::cout<<"Attempted to find length of unknown type"<<std::endl;
