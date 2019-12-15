@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <exception>
 #include <string_view>
 
 #include <llvm/ADT/APFloat.h>
@@ -30,17 +31,22 @@ private:
     Type type;
 };
 
+class OffsetOutOfBoundsException: public std::exception {};
+
 class AddrSymValue: public SymValue {
 public:
-    AddrSymValue(std::string_view atomName, llvm::APInt offset, Type type);
+    AddrSymValue(std::string_view atomName, unsigned offset, unsigned max, Type type);
+    AddrSymValue(std::string_view atomName, llvm::APInt offset, unsigned max, Type type);
     Kind get_kind() const override { return Kind::ADDR; }
     std::string_view get_name() { return name; }
     llvm::APInt get_offset() { return offset; }
-    virtual AddrSymValue *copy_cast(Type type) const override { return new AddrSymValue(name, offset, type); }
+    unsigned get_max() { return max; }
+    virtual AddrSymValue *copy_cast(Type type) const override { return new AddrSymValue(name, offset, max, type); }
     std::string toString() const;
 private:
     std::string_view name;
     llvm::APInt offset;
+    unsigned max;
 };
 
 class BoolSymValue: public SymValue {

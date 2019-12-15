@@ -11,13 +11,29 @@
 #include "symvalue.h"
 #include "utilities.h"
 
-AddrSymValue::AddrSymValue(std::string_view atomName, llvm::APInt offset, Type type):
+AddrSymValue::AddrSymValue(std::string_view atomName, unsigned offsetValue, unsigned max, Type type):
     SymValue(type),
     name(atomName),
-    offset(offset)
+    offset(bitLength(type), offsetValue, false),
+    max(max)
+{
+    assert(isIntType(type));
+    if(offset.getLimitedValue() > max) {
+        throw OffsetOutOfBoundsException();
+    }
+}
+
+AddrSymValue::AddrSymValue(std::string_view atomName, llvm::APInt offset, unsigned max, Type type):
+    SymValue(type),
+    name(atomName),
+    offset(offset),
+    max(max)
 {
     assert(isIntType(type));
     offset = offset.sextOrTrunc(bitLength(type));
+    if(offset.getLimitedValue() > max) {
+        throw OffsetOutOfBoundsException();
+    }
 }
 
 std::string AddrSymValue::toString() const
@@ -26,6 +42,8 @@ std::string AddrSymValue::toString() const
     stream << name
         <<"["
         << offset.toString(10, isSigned(get_type()))
+        <<" of "
+        << max
         << "] ("
         << ::toString(get_type())
         << ")";
