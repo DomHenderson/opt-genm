@@ -43,7 +43,7 @@ private:
 
     void StepNode(FlowNode *node);
 
-    void Add(AddInst *addInst, FlowNode *node);
+    std::optional<std::unordered_set<FlowNode*>> Add(AddInst *addInst, FlowNode *node);
     void Arg(ArgInst *argInst, FlowNode *node);
     std::optional<std::unordered_set<FlowNode*>> Call(CallInst *callInst, FlowNode *node);
     void Cmp(CmpInst *cmpInst, FlowNode *node);

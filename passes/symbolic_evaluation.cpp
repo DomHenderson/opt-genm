@@ -105,8 +105,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
     switch(inst.GetKind()) {
     case Inst::Kind::ADD:
         std::cout<<"Running add"<<std::endl;
-        Add(static_cast<AddInst*>(&inst), node);
-        return std::nullopt;
+        return Add(static_cast<AddInst*>(&inst), node);
 
     case Inst::Kind::ARG:
         std::cout<<"Running arg"<<std::endl;
@@ -245,7 +244,7 @@ SuccessorFlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
 
 // -----------------------------------------------------------------------------
 
-void SymbolicEvaluation::Add(
+std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
     AddInst *addInst,
     FlowNode *node
 ) {
@@ -255,67 +254,73 @@ void SymbolicEvaluation::Add(
     SymValue *result;
     Type resultType = addInst->GetType();
 
-    switch(LHS->get_kind()) {
-    case SymValue::Kind::ADDR: {
-        AddrSymValue *laddr = static_cast<AddrSymValue*>(LHS);
-        switch(RHS->get_kind()) {
-        case SymValue::Kind::INT: {
-            IntSymValue *rint = static_cast<IntSymValue*>(RHS);
-            result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), resultType);
-            std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
-        } break;
-        default:
-            std::cout<<"Adding ADDR and not INT"<<std::endl;
-            result = new UnknownSymValue(resultType);
-            break;
-        }
-    } break;
-    case SymValue::Kind::INT: {
-        IntSymValue *lint = static_cast<IntSymValue*>(LHS);
-        switch(RHS->get_kind()) {
+    try {
+        switch(LHS->get_kind()) {
         case SymValue::Kind::ADDR: {
-            AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
-            result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), resultType);
-            std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
-        } break;
-        case SymValue::Kind::FLOAT: {
-            auto rf = static_cast<FloatSymValue*>(RHS);
-            if(resultType == Type::F64) {
-                auto resultValue = llvm::APFloat(static_cast<double>(0));
-                resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
-                resultValue = resultValue + rf->get_value();
-                result = new FloatSymValue(resultValue, resultType);
-                std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
-            }else if (resultType == Type::F32) {
-                auto resultValue = llvm::APFloat(static_cast<float>(0));
-                resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
-                resultValue = resultValue + rf->get_value();
-                result = new FloatSymValue(resultValue, resultType);
-                std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
-            } else {
-                std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+            AddrSymValue *laddr = static_cast<AddrSymValue*>(LHS);
+            switch(RHS->get_kind()) {
+            case SymValue::Kind::INT: {
+                IntSymValue *rint = static_cast<IntSymValue*>(RHS);
+                result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), laddr->get_max(), resultType);
+                std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
+            } break;
+            default:
+                std::cout<<"WARNING: Adding ADDR and not INT"<<std::endl;
                 result = new UnknownSymValue(resultType);
+                break;
             }
         } break;
         case SymValue::Kind::INT: {
-            IntSymValue *rint = static_cast<IntSymValue*>(RHS);
-            result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
-            std::cout<<lint->toString()<<"+"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+            IntSymValue *lint = static_cast<IntSymValue*>(LHS);
+            switch(RHS->get_kind()) {
+            case SymValue::Kind::ADDR: {
+                AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
+                result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), raddr->get_max(), resultType);
+                std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
+            } break;
+            case SymValue::Kind::FLOAT: {
+                auto rf = static_cast<FloatSymValue*>(RHS);
+                if(resultType == Type::F64) {
+                    auto resultValue = llvm::APFloat(static_cast<double>(0));
+                    resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                    resultValue = resultValue + rf->get_value();
+                    result = new FloatSymValue(resultValue, resultType);
+                    std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                }else if (resultType == Type::F32) {
+                    auto resultValue = llvm::APFloat(static_cast<float>(0));
+                    resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                    resultValue = resultValue + rf->get_value();
+                    result = new FloatSymValue(resultValue, resultType);
+                    std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                } else {
+                    std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                    result = new UnknownSymValue(resultType);
+                }
+            } break;
+            case SymValue::Kind::INT: {
+                IntSymValue *rint = static_cast<IntSymValue*>(RHS);
+                result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
+                std::cout<<lint->toString()<<"+"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+            } break;
+            default:
+                std::cout<<"Unable to calculate INT plus "<<toString(RHS->get_kind())<<std::endl;
+                result = new UnknownSymValue(resultType);
+                break;
+            }
         } break;
         default:
-            std::cout<<"Unable to calculate INT plus "<<toString(RHS->get_kind())<<std::endl;
+            std::cout<<"Unable to calculate "<<toString(LHS->get_kind())<<" plus "<<toString(RHS->get_kind())<<std::endl;
             result = new UnknownSymValue(resultType);
             break;
         }
-    } break;
-    default:
-        std::cout<<"Unable to calculate "<<toString(LHS->get_kind())<<" plus "<<toString(RHS->get_kind())<<std::endl;
-        result = new UnknownSymValue(resultType);
-        break;
-    }
 
-    storagePool.persist(result);
-    node->AllocateResult(addInst, result);
+        storagePool.persist(result);
+        node->AllocateResult(addInst, result);
+        return std::nullopt;
+    } catch (OffsetOutOfBoundsException e) {
+        return std::unordered_set<FlowNode*>();
+    }
+    
 }
 
 void SymbolicEvaluation::Arg(
@@ -894,23 +899,33 @@ void SymbolicEvaluation::AllocateValue(
     case Value::Kind::GLOBAL: {
         auto g = static_cast<Global*>(value);
         switch(g->GetKind()) {
-        case Global::Kind::ATOM:
-            std::cout<<"Allocating global atom"<<std::endl;
-            result = storagePool.persist(new AddrSymValue(g->GetName(),llvm::APInt(bitLength(type),0,isSigned(type)), type));
-            break;
+        case Global::Kind::ATOM: {
+            std::cout<<"Allocating global atom (label) "<<g->GetName()<<std::endl;
+            const Label *label = node->get_store().getLabel(g->GetName());
+            if(label == nullptr) {
+                std::cout<<"WARNING: Attempted to create address symvalue to unknown label"<<std::endl;
+            } else {
+                result = storagePool.persist(new AddrSymValue(
+                    g->GetName(),
+                    llvm::APInt(bitLength(type),label->offset, isSigned(type)),
+                    label->atom->getSize(),
+                    type
+                ));
+            }
+        } break;
         
         case Global::Kind::EXTERN:
-            std::cout<<"Allocating global extern"<<std::endl;
+            std::cout<<"Allocating global extern "<<g->GetName()<<std::endl;
             result = storagePool.persist(new ExternSymValue(g->GetName(), type));
             break;
 
         case Global::Kind::FUNC:
-            std::cout<<"Allocating global func"<<std::endl;
+            std::cout<<"Allocating global func "<<g->GetName()<<std::endl;
             result = storagePool.persist(new FuncRefSymValue(g->GetName(), type));
             break;
         
         default:
-            std::cout<<"Allocating unknown global"<<std::endl;
+            std::cout<<"Allocating unknown global "<<g->GetName()<<std::endl;
             result = storagePool.persist(new UnknownSymValue(type));
             break;
         }
