@@ -60,6 +60,7 @@ private:
     void Store(StoreInst *storeInst, FlowNode *node);
     std::unordered_set<FlowNode*> TCall(TailCallInst *tailCallInst, FlowNode *node);
     void Phi(PhiInst *phiInst, FlowNode *node);
+    void ZExt(ZExtInst* zExtInst, FlowNode *node);
 
     void AllocateValue(Inst *inst, Value *value, Type type, FlowNode *node);
 

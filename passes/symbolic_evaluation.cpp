@@ -182,6 +182,10 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         std::cout<<"Running tail call"<<std::endl;
         return TCall(static_cast<TailCallInst*>(&inst), node);
 
+    case Inst::Kind::ZEXT:
+        std::cout<<"Running zero extend"<<std::endl;
+        ZExt(static_cast<ZExtInst*>(&inst), node);
+        return std::nullopt;
     default:
         std::cout<<"Skipping "<<toString(inst)<<std::endl;
         return std::nullopt;
@@ -961,6 +965,29 @@ void SymbolicEvaluation::Phi(
         phiInst->GetType(),
         node
     );
+}
+
+void SymbolicEvaluation::ZExt(
+    ZExtInst *zExtInst,
+    FlowNode *node
+) {
+    auto x = node->GetResult(zExtInst->GetArg());
+    auto resultType = zExtInst->GetType();
+    switch(x->get_kind()) {
+    case SymValue::Kind::INT: {
+        auto op = static_cast<IntSymValue*>(x);
+        auto result = new IntSymValue(op->get_value().zext(bitLength(resultType)),resultType);
+        std::cout<<op->toString()<<" zero extended to "<<result->toString()<<std::endl;
+        node->AllocateResult(zExtInst,storagePool.persist(result));
+    } break;
+    default:
+        std::cout<<toString(*x)<<" zero extended to unknown symvalue"<<std::endl;
+        node->AllocateResult(
+            zExtInst,
+            storagePool.persist(new UnknownSymValue(resultType))
+        );
+        break;
+    }
 }
 
 void SymbolicEvaluation::AllocateValue(
