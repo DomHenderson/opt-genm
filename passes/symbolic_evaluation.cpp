@@ -257,19 +257,18 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
     AddInst *addInst,
     FlowNode *node
 ) {
-    SymValue *LHS = node->GetResult(addInst->GetLHS());
-    SymValue *RHS = node->GetResult(addInst->GetRHS());
+    auto [lhs, rhs] = getOperandValues(addInst, node);
 
     SymValue *result;
     Type resultType = addInst->GetType();
 
     try {
-        switch(LHS->get_kind()) {
+        switch(lhs->get_kind()) {
         case SymValue::Kind::ADDR: {
-            AddrSymValue *laddr = static_cast<AddrSymValue*>(LHS);
-            switch(RHS->get_kind()) {
+            AddrSymValue *laddr = static_cast<AddrSymValue*>(lhs);
+            switch(rhs->get_kind()) {
             case SymValue::Kind::INT: {
-                IntSymValue *rint = static_cast<IntSymValue*>(RHS);
+                IntSymValue *rint = static_cast<IntSymValue*>(rhs);
                 result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), laddr->get_max(), resultType);
                 std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
             } break;
@@ -280,15 +279,15 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
             }
         } break;
         case SymValue::Kind::INT: {
-            IntSymValue *lint = static_cast<IntSymValue*>(LHS);
-            switch(RHS->get_kind()) {
+            IntSymValue *lint = static_cast<IntSymValue*>(lhs);
+            switch(rhs->get_kind()) {
             case SymValue::Kind::ADDR: {
-                AddrSymValue *raddr = static_cast<AddrSymValue*>(RHS);
+                AddrSymValue *raddr = static_cast<AddrSymValue*>(rhs);
                 result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), raddr->get_max(), resultType);
                 std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
             } break;
             case SymValue::Kind::FLOAT: {
-                auto rf = static_cast<FloatSymValue*>(RHS);
+                auto rf = static_cast<FloatSymValue*>(rhs);
                 if(resultType == Type::F64) {
                     auto resultValue = llvm::APFloat(static_cast<double>(0));
                     resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
@@ -307,18 +306,18 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
                 }
             } break;
             case SymValue::Kind::INT: {
-                IntSymValue *rint = static_cast<IntSymValue*>(RHS);
+                IntSymValue *rint = static_cast<IntSymValue*>(rhs);
                 result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
                 std::cout<<lint->toString()<<"+"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
             } break;
             default:
-                std::cout<<"Unable to calculate INT plus "<<toString(RHS->get_kind())<<std::endl;
+                std::cout<<"Unable to calculate INT plus "<<toString(rhs->get_kind())<<std::endl;
                 result = new UnknownSymValue(resultType);
                 break;
             }
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(LHS->get_kind())<<" plus "<<toString(RHS->get_kind())<<std::endl;
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" plus "<<toString(rhs->get_kind())<<std::endl;
             result = new UnknownSymValue(resultType);
             break;
         }
@@ -460,43 +459,45 @@ void SymbolicEvaluation::Cmp(
     FlowNode *node
 ) {
     Cond c = cmpInst->GetCC();
-    Inst *lhs = cmpInst->GetLHS();
-    Inst *rhs = cmpInst->GetRHS();
-    SymValue *lv = node->GetResult(lhs);
-    SymValue *rv = node->GetResult(rhs);
+    auto [lhs, rhs] = getOperandValues(cmpInst, node);
     SymComp::Result result;
 
-    std::cout<<"lhs: "<<toString(lhs->GetKind())<<" rhs: "<<toString(rhs->GetKind())<<std::endl;
+    std::cout<<"lhs: "<<toString(lhs)<<" rhs: "<<toString(rhs)<<std::endl;
+
+    if(lhs == nullptr || rhs == nullptr) {
+        std::cout<<"WARNING: operand nullptr"<<std::endl;
+        return;
+    }
 
     switch(c) {
     case Cond::EQ:
         std::cout<<"Comparing EQ"<<std::endl;
-        result = SymComp::EQ(lv, rv);
+        result = SymComp::EQ(lhs, rhs);
         break;
     
     case Cond::NE:
         std::cout<<"Comparing NE"<<std::endl;
-        result = SymComp::NEQ(lv, rv);
+        result = SymComp::NEQ(lhs, rhs);
         break;
     
     case Cond::LT:
         std::cout<<"Comparing LT"<<std::endl;
-        result = SymComp::LT(lv, rv);
+        result = SymComp::LT(lhs, rhs);
         break;
     
     case Cond::GT:
         std::cout<<"Comparing GT"<<std::endl;
-        result = SymComp::GT(lv, rv);
+        result = SymComp::GT(lhs, rhs);
         break;
     
     case Cond::LE:
         std::cout<<"Comparing LE"<<std::endl;
-        result = SymComp::LE(lv, rv);
+        result = SymComp::LE(lhs, rhs);
         break;
     
     case Cond::GE:
         std::cout<<"Comparing GE"<<std::endl;
-        result = SymComp::GE(lv, rv);
+        result = SymComp::GE(lhs, rhs);
         break;
     
     default:
@@ -588,8 +589,7 @@ void SymbolicEvaluation::LeftLogicalShift(
     SllInst *sllInst,
     FlowNode *node
 ) {
-    auto lhs = node->GetResult(sllInst->GetLHS());
-    auto rhs = node->GetResult(sllInst->GetRHS());
+    auto [lhs, rhs] = getOperandValues(sllInst, node);
 
     SymValue *result;
     Type resultType = sllInst->GetType();
@@ -646,8 +646,7 @@ void SymbolicEvaluation::Mul(
     MulInst *mulInst,
     FlowNode *node
 ) {
-    auto lhs = node->GetResult(mulInst->GetLHS());
-    auto rhs = node->GetResult(mulInst->GetRHS());
+    auto [lhs, rhs] = getOperandValues(mulInst, node);
 
     Type resultType = mulInst->GetType();
 
@@ -787,9 +786,7 @@ void SymbolicEvaluation::Rem(
     RemInst *remInst,
     FlowNode *node
 ) {
-    auto lhs = node->GetResult(remInst->GetLHS());
-    auto rhs = node->GetResult(remInst->GetRHS());
-
+    auto [lhs, rhs] = getOperandValues(remInst, node);
     Type resultType = remInst->GetType();
 
     if(isIntType(resultType)) {
@@ -875,8 +872,7 @@ void SymbolicEvaluation::RightArithmeticShift(
     SraInst *sraInst,
     FlowNode *node
 ) {
-    auto lhs = node->GetResult(sraInst->GetLHS());
-    auto rhs = node->GetResult(sraInst->GetRHS());
+    auto [lhs, rhs] = getOperandValues(sraInst, node);
 
     SymValue *result;
     Type resultType = sraInst->GetType();
@@ -913,8 +909,7 @@ void SymbolicEvaluation::RightLogicalShift(
     SrlInst *srlInst,
     FlowNode *node
 ) {
-    auto lhs = node->GetResult(srlInst->GetLHS());
-    auto rhs = node->GetResult(srlInst->GetRHS());
+    auto [lhs, rhs] = getOperandValues(srlInst, node);
 
     SymValue *result;
     Type resultType = srlInst->GetType();

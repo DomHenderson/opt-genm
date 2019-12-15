@@ -18,6 +18,7 @@
 #include "core/prog.h"
 #include "core/value.h"
 
+#include "flownode.h"
 #include "utilities.h"
 #include "symvalue.h"
 
@@ -354,6 +355,15 @@ bool knownSafeExtern(std::string_view name)
     }
 }
 
+std::pair<SymValue*,SymValue*> getOperandValues(
+    BinaryInst *inst,
+    FlowNode *node
+) {
+    return std::pair(
+        node->GetResult(inst->GetLHS()),
+        node->GetResult(inst->GetRHS())
+    );
+}
 
 void PrintCodeInfo(Prog *prog)
 {

@@ -7,6 +7,7 @@
 #include <llvm/ADT/ilist.h>
 
 #include "core/inst.h"
+#include "flownode.h"
 #include "symvalue.h"
 
 class Func;
@@ -25,6 +26,8 @@ bool isSigned(Type type);
 unsigned bitLength(Type type);
 unsigned byteLength(Type type);
 std::optional<Type> unsignedOfLength(unsigned length);
+
+std::pair<SymValue*,SymValue*> getOperandValues(BinaryInst *inst, FlowNode *node);
 
 bool knownSafeExtern(std::string_view name);
 
