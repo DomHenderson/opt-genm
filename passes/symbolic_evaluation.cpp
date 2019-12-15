@@ -153,7 +153,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         std::cout<<"Running rem"<<std::endl;
         Rem(static_cast<RemInst*>(&inst), node);
         return std::nullopt;
-        
+
     case Inst::Kind::RET:
         std::cout<<"Running ret"<<std::endl;
         return Ret(static_cast<ReturnInst*>(&inst), node);
@@ -387,15 +387,63 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
 
     case SymValue::Kind::EXTERN: {
         auto ext = static_cast<ExternSymValue*>(v);
+        bool evaluable = false;
         std::cout<<"Calling extern "<<ext->get_name()<<std::endl;
-        if(!knownSafeExtern(ext->get_name())) {
+        if(knownSafeExtern(ext->get_name())) {
+            std::cout<<"Not invalidating store"<<std::endl;
+            if(ext->get_name() == "strlen") {
+                SymValue *arg = node->GetResult(*callInst->arg_begin());
+                if(arg->get_kind() == SymValue::Kind::ADDR) {
+                    std::cout<<"Running strlen"<<std::endl;
+                    auto addr = static_cast<AddrSymValue*>(arg);
+                    evaluable = true;
+                    auto label = node->get_store().getLabel(addr->get_name());
+                    unsigned length = 0;
+                    AddrSymValue* i;
+                    while(true) {
+                        std::cout<<"Reading at length "<<length<<std::endl;
+                        try {
+                            i = storagePool.persist(new AddrSymValue(
+                                addr->get_name(),
+                                addr->get_offset() + length,
+                                addr->get_max(),
+                                addr->get_type()
+                            ));
+                        } catch (OffsetOutOfBoundsException e) {
+                            std::cout<<"Offset "<<addr->get_offset().getLimitedValue()+length<<" out of bounds"<<std::endl;
+                            return std::unordered_set<FlowNode*>();
+                        }
+                        auto read = node->get_store().read(i, 1, Type::U8);
+                        if(read == nullptr) {
+                            std::cout<<"Read returned nullptr"<<std::endl;
+                            return std::unordered_set<FlowNode*>();
+                        } else if (read->get_kind() == SymValue::Kind::INT) {
+                            auto c = static_cast<IntSymValue*>(read);
+                            if(c->get_value().getLimitedValue() == 0) {
+                                std::cout<<"Found a zero at length "<<length<<std::endl;
+                                node->AllocateResult(callInst, storagePool.persist(
+                                    new IntSymValue(
+                                        length,
+                                        *callInst->GetType()
+                                    )
+                                ));
+                                return std::nullopt;
+                            }
+                        } else {
+                            std::cout<<"Found a non-int value at "<<length<<std::endl;
+                            node->AllocateResult(callInst, storagePool.persist(new UnknownSymValue(*callInst->GetType())));
+                            return std::nullopt;
+                        }
+                        ++length;
+                    }
+                }
+            }
+        } else {
             std::cout<<"Invalidating store"<<std::endl;
             node->get_store().invalidate();
-        } else {
-            std::cout<<"Not invalidating store"<<std::endl;
         }
         
-        if(!callInst->IsVoid()){
+        if(!evaluable && !callInst->IsVoid()){
             node->AllocateResult(callInst, storagePool.persist(new UnknownSymValue(*callInst->GetType())));
         }
         return std::nullopt;
