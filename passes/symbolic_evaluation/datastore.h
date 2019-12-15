@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string_view>
+#include <utility>
 
 #include <llvm/ADT/APInt.h>
 
@@ -13,44 +14,42 @@
 
 class SymExPool;
 
+class MappedAtom {
+public:
+    MappedAtom(SymExPool &pool): pool(pool) {} 
+    SymValue *get(unsigned offset, size_t loadSize, Type type);
+    SymValue *get(llvm::APInt offset, size_t loadSize, Type type);
+
+    void addSymValue(SymValue &symValue);
+    void addSpace(unsigned space);
+
+    unsigned getSize() const;
+private:
+    std::pair<unsigned, unsigned> FindSection(unsigned offset) const;
+
+    std::map<unsigned,SymValue*> items;
+
+    unsigned size = 0;
+
+    SymExPool &pool;
+};
+
+struct Label {
+    MappedAtom *atom;
+    unsigned offset;
+};
+
 class DataStore {
 public:
     virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true, unsigned debugCount = 0) = 0;
     virtual void write(SymValue *addr, SymValue *value) = 0;
     virtual void invalidate() = 0;
+    virtual const Label *getLabel(std::string_view name) const = 0;
 };
 
-class MappedItem {
-public:
-    enum class Kind {
-        VALUE,
-        END
-    };
-    MappedItem(): kind(Kind::END), value(nullptr), size(0) {}
-    MappedItem(SymValue *value, unsigned size): kind(Kind::VALUE), value(value), size(size) {}
-    Kind get_kind() { return kind; }
-    SymValue *get_value() { return value; }
-    unsigned get_size() { return size; }
-private:
-    Kind kind;
-    SymValue *value;
-    unsigned size;
-};
-
-class MappedAtom {
-public:
-    MappedAtom(SymExPool &pool): pool(pool) {}
-    void add(Item *item);
-    SymValue *get(int offset, size_t loadSize, Type type);
-    SymValue *get(llvm::APInt offset, size_t loadSize, Type type);
-private:
-    std::map<unsigned,MappedItem> items;
-    unsigned next = 0;
-    unsigned previous;
-
-    bool ended = false;
-
-    SymExPool &pool;
+struct DataSegmentInfo {
+    std::string_view name;
+    bool readOnly;
 };
 
 class BaseStore: public DataStore {
@@ -59,8 +58,13 @@ public:
     virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true, unsigned debugCount = 0) override;
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
+    virtual const Label *getLabel(std::string_view name) const override;
 private:
-    std::unordered_map<std::string_view,MappedAtom> atoms;
+    std::vector<DataSegmentInfo> dataSegments;
+
+    std::vector<std::unique_ptr<MappedAtom>> atoms;    //Each atom can have multiple labels pointing into it
+    std::unordered_map<std::string_view,Label> labels; //So we need to store them separately
+
     SymExPool &storagePool;
 };
 
@@ -70,6 +74,7 @@ public:
     virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, bool record = true, unsigned debugCount = 0) override;
     virtual void write(SymValue *addr, SymValue *value) override;
     virtual void invalidate() override;
+    virtual const Label *getLabel(std::string_view name) const override;
 private:
     class Action {
     public:
