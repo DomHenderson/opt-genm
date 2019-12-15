@@ -53,6 +53,7 @@ private:
     void Load(LoadInst *loadInst, FlowNode *node);
     void Mov(MovInst *movInst, FlowNode *node);
     void Mul(MulInst *mulInst, FlowNode *node);
+    void Rem(RemInst *remInst, FlowNode *node);
     std::unordered_set<FlowNode*> Ret(ReturnInst *returnInst, FlowNode *node);
     void RightArithmeticShift(SraInst *sraInst, FlowNode *node);
     void RightLogicalShift(SrlInst *srlInst, FlowNode *node);

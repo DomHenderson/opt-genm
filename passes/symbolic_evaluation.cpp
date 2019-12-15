@@ -149,6 +149,11 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         Phi(static_cast<PhiInst*>(&inst), node);
         return std::nullopt;
 
+    case Inst::Kind::REM:
+        std::cout<<"Running rem"<<std::endl;
+        Rem(static_cast<RemInst*>(&inst), node);
+        return std::nullopt;
+        
     case Inst::Kind::RET:
         std::cout<<"Running ret"<<std::endl;
         return Ret(static_cast<ReturnInst*>(&inst), node);
@@ -724,6 +729,76 @@ void SymbolicEvaluation::Mul(
         break;
     }
     std::cout<<std::endl;
+}
+
+void SymbolicEvaluation::Rem(
+    RemInst *remInst,
+    FlowNode *node
+) {
+    auto lhs = node->GetResult(remInst->GetLHS());
+    auto rhs = node->GetResult(remInst->GetRHS());
+
+    Type resultType = remInst->GetType();
+
+    if(isIntType(resultType)) {
+        if(lhs->get_kind() == SymValue::Kind::INT && rhs->get_kind() == SymValue::Kind::INT) {
+            auto l = static_cast<IntSymValue*>(lhs);
+            auto r = static_cast<IntSymValue*>(rhs);
+            std::cout<<l->toString()<<(isSigned(resultType)?" srem ":" urem ")<<r->toString()<<" ";
+            node->AllocateResult(
+                remInst,
+                storagePool.persist(
+                    new IntSymValue(
+                        isSigned(resultType) 
+                            ? l->get_value().srem(r->get_value())
+                            : l->get_value().urem(r->get_value()),
+                        resultType
+                    )
+                )
+            );
+        } else {
+            node->AllocateResult(
+                remInst,
+                storagePool.persist(
+                    new UnknownSymValue(resultType)
+                )
+            );
+        }
+    } else {
+        if(lhs->get_kind() == SymValue::Kind::FLOAT && rhs->get_kind() == SymValue::Kind::FLOAT) {
+            auto l = static_cast<FloatSymValue*>(lhs);
+            auto r = static_cast<FloatSymValue*>(rhs);
+            std::cout<<l->toString()<<" frem "<<r->toString()<<" ";
+            llvm::APFloat resultValue = l->get_value();
+            auto status = resultValue.remainder(r->get_value());
+            if(status == llvm::APFloatBase::opOK) {
+                node->AllocateResult(
+                    remInst,
+                    storagePool.persist(
+                        new FloatSymValue(
+                            resultValue,
+                            resultType
+                        )
+                    )
+                );
+            } else {
+                node->AllocateResult(
+                remInst,
+                storagePool.persist(
+                    new UnknownSymValue(resultType)
+                )
+            );
+            }
+        } else {
+            node->AllocateResult(
+                remInst,
+                storagePool.persist(
+                    new UnknownSymValue(resultType)
+                )
+            );
+        }
+    }
+    std::cout<<toString(*node->GetResult(remInst))<<std::endl;
 }
 
 std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
