@@ -858,9 +858,12 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     FlowNode *node
 ) {
     Inst *caller = node->get_frame().get_caller();
+    std::cout<<"Caller: "<<(caller==nullptr?"nullptr":toString(*caller))<<std::endl;
     FlowNode *newNode = CreateReturnFlowNode(node);
     if(!caller->IsVoid()) {
+        std::cout<<"Caller is not void"<<std::endl;
         SymValue *returnValue = node->GetResult(returnInst->GetValue());
+        std::cout<<"Return value "<<(returnValue==nullptr?"nullptr":toString(*returnValue))<<std::endl;
         newNode->AllocateResult(caller, returnValue);
     }
     std::unordered_set<FlowNode*> nodes;
@@ -1013,6 +1016,8 @@ void SymbolicEvaluation::Phi(
         phiInst->GetType(),
         node
     );
+
+    std::cout<<"Allocated "<<toString(*node->GetResult(phiInst))<<std::endl;
 }
 
 void SymbolicEvaluation::ZExt(
