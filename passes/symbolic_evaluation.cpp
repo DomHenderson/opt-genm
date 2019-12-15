@@ -337,7 +337,7 @@ void SymbolicEvaluation::Arg(
 ) {
     unsigned int idx = argInst->GetIdx();
     SymValue *result = node->get_frame().get_arg(idx);
-    std::cout<<(result==nullptr?"nullptr":toString(*result))<<" at index "<<idx<<std::endl;
+    std::cout<<toString(result)<<" at index "<<idx<<std::endl;
 
     node->AllocateResult(
         argInst,
@@ -855,12 +855,12 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     FlowNode *node
 ) {
     Inst *caller = node->get_frame().get_caller();
-    std::cout<<"Caller: "<<(caller==nullptr?"nullptr":toString(*caller))<<std::endl;
+    std::cout<<"Caller: "<<toString(caller)<<std::endl;
     FlowNode *newNode = CreateReturnFlowNode(node);
     if(!caller->IsVoid()) {
         std::cout<<"Caller is not void"<<std::endl;
         SymValue *returnValue = node->GetResult(returnInst->GetValue());
-        std::cout<<"Return value "<<(returnValue==nullptr?"nullptr":toString(*returnValue))<<std::endl;
+        std::cout<<"Return value "<<toString(returnValue)<<std::endl;
         newNode->AllocateResult(caller, returnValue);
     }
     std::unordered_set<FlowNode*> nodes;

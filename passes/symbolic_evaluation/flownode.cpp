@@ -227,7 +227,7 @@ SymValue *RootFlowNode::GetResult(Inst *inst)
         return values[iter->second];
     }
 
-    std::cout<<"Result not found for "<<(inst==nullptr?"nullptr":toString(*inst))<<std::endl;
+    std::cout<<"Result not found for "<<toString(inst)<<std::endl;
     if(inst->IsVoid()) {
         return nullptr;
     } else {

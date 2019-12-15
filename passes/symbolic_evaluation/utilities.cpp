@@ -200,6 +200,13 @@ std::string toString(Inst &inst)
     return stream.str(); 
 }
 
+std::string toString(Inst *inst)
+{
+    return inst == nullptr
+        ? "nullptr"
+        : toString(*inst);
+}
+
 std::string toString(SymValue::Kind k)
 {
     switch(k) {
@@ -251,6 +258,13 @@ std::string toString(SymValue &value)
     stream<<" ("<<toString(value.get_type())<<")";
 
     return stream.str();
+}
+
+std::string toString(SymValue *value)
+{
+    return value==nullptr
+        ? "nullptr"
+        : toString(*value);
 }
 
 std::string toString(Type type)

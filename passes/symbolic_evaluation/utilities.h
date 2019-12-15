@@ -17,8 +17,10 @@ llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 
 std::string toString(Inst::Kind k);
 std::string toString(Inst &inst);
+std::string toString(Inst *inst);
 std::string toString(SymValue::Kind k);
 std::string toString(SymValue &value);
+std::string toString(SymValue *value);
 std::string toString(Type type);
 
 bool isIntType(Type type);
