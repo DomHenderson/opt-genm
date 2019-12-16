@@ -7,6 +7,7 @@
 #include <llvm/ADT/ilist.h>
 
 #include "core/block.h"
+#include "core/constant.h"
 #include "core/func.h"
 #include "core/insts_call.h"
 #include "datastore.h"
@@ -14,6 +15,7 @@
 #include "symvalue.h"
 
 class SuccessorFlowNode;
+class SymExPool;
 
 class FlowNode {
 public:
@@ -21,21 +23,19 @@ public:
     using Block_iterator = llvm::ilist<Block>::iterator;
     using Func_iterator = llvm::ilist<Func>::iterator;
 
-    FlowNode(Frame &frame);
+    FlowNode(Frame &frame, SymExPool &pool);
     virtual ~FlowNode() {}
 
     virtual SuccessorFlowNode *CreateBlockNode(Block &block);
     virtual SuccessorFlowNode *CreateFunctionNode(
         Func &func,
         std::vector<SymValue*> args,
-        Inst_iterator caller,
-        SymExPool &pool
+        Inst_iterator caller
     );
     virtual SuccessorFlowNode *CreateReturnNode() = 0;
     virtual SuccessorFlowNode *CreateTailCallNode(
         Func &func,
-        std::vector<SymValue*> args,
-        SymExPool &pool
+        std::vector<SymValue*> args
     );
 
     virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) = 0;
@@ -53,17 +53,20 @@ public:
 
     virtual std::string get_name() = 0;
 
-protected:
-    std::unordered_map<Inst*,unsigned> reg_allocs;
-    std::vector<SymValue*> values;
-    Frame &currentFrame;
-};
+    virtual SymValue *GetRegister(ConstantReg::Kind reg);
+    virtual void SetRegister(ConstantReg::Kind reg, SymValue* value);
 
-class SymExPool;
+protected:
+    std::unordered_map<Inst*,unsigned> vreg_allocs;
+    std::vector<SymValue*> values;
+    std::unordered_map<ConstantReg::Kind,SymValue*> registers; 
+    Frame &currentFrame;
+    SymExPool &pool;
+};
 
 class SuccessorFlowNode : public FlowNode {
 public:
-    SuccessorFlowNode(Inst_iterator startingInst, Frame &frame, FlowNode &previous);
+    SuccessorFlowNode(Inst_iterator startingInst, Frame &frame, FlowNode &previous, SymExPool &pool);
     ~SuccessorFlowNode() = default;
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
@@ -110,6 +113,4 @@ private:
     
     BaseStore baseStore;
     LogStore dataStore;
-
-    SymExPool &pool;
 };

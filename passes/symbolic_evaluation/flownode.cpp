@@ -3,6 +3,7 @@
 #include <sstream>
 #include <vector>
 
+#include "core/constant.h"
 #include "core/insts_call.h"
 #include "flownode.h"
 #include "storagepool.h"
@@ -18,8 +19,12 @@ Inst_iterator NextInst(Inst_iterator i);
 
 //-----------------------------------------------------------------------------
 
-FlowNode::FlowNode(Frame &frame) :
-    currentFrame(frame)
+FlowNode::FlowNode(
+    Frame &frame,
+    SymExPool &pool
+) :
+    currentFrame(frame),
+    pool(pool)
 {
 }
 
@@ -28,15 +33,15 @@ SuccessorFlowNode *FlowNode::CreateBlockNode(Block &block)
     return new SuccessorFlowNode(
         block.begin(),
         get_frame(),
-        *this
+        *this,
+        pool
     );
 }
 
 SuccessorFlowNode *FlowNode::CreateFunctionNode(
     Func &func,
     std::vector<SymValue*> args,
-    Inst_iterator caller,
-    SymExPool &pool
+    Inst_iterator caller
 ) {
     return new SuccessorFlowNode(
         func.begin()->begin(),
@@ -46,14 +51,14 @@ SuccessorFlowNode *FlowNode::CreateFunctionNode(
             &*caller,
             NextInst(caller)
         )),
-        *this
+        *this,
+        pool
     );
 }
 
 SuccessorFlowNode *FlowNode::CreateTailCallNode(
     Func &func,
-    std::vector<SymValue*> args,
-    SymExPool &pool
+    std::vector<SymValue*> args
 ) {
     return new SuccessorFlowNode(
         func.begin()->begin(),
@@ -63,7 +68,8 @@ SuccessorFlowNode *FlowNode::CreateTailCallNode(
             get_frame().get_caller(),
             get_frame().get_resume_inst()
         )),
-        *this
+        *this,
+        pool
     );
 }
 
@@ -71,7 +77,7 @@ void FlowNode::AllocateResult(
     Inst *inst,
     SymValue *value
 ) {
-    reg_allocs[inst] = values.size();
+    vreg_allocs[inst] = values.size();
     values.push_back(value);
 }
 
@@ -80,14 +86,32 @@ Frame &FlowNode::get_frame()
     return currentFrame;
 }
 
+SymValue *FlowNode::GetRegister(ConstantReg::Kind reg)
+{
+    auto iter = registers.find(reg);
+    if(iter == registers.end()) {
+        registers[reg] = pool.persist(new UnknownSymValue(Type::U64));
+        return registers[reg];
+    }
+    return iter->second;
+}
+
+void FlowNode::SetRegister(
+    ConstantReg::Kind reg,
+    SymValue *value
+) {
+    registers[reg] = value;
+}
+
 //-----------------------------------------------------------------------------
 
 SuccessorFlowNode::SuccessorFlowNode(
     Inst_iterator startingInst,
     Frame &frame,
-    FlowNode &previous
+    FlowNode &previous,
+    SymExPool &pool
 ) :
-    FlowNode(frame),
+    FlowNode(frame, pool),
     startingInst(startingInst),
     previousNode(previous),
     dataStore(CreateLogStore(previous))
@@ -107,7 +131,8 @@ SuccessorFlowNode *SuccessorFlowNode::CreateReturnNode()
     SuccessorFlowNode *node = new SuccessorFlowNode(
         get_frame().get_resume_inst().value(),
         frame,
-        *this
+        *this,
+        pool
     );
 
     return node;
@@ -134,9 +159,9 @@ Block *SuccessorFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks, bool incl
 
 SymValue *SuccessorFlowNode::GetResult(Inst *inst)
 {
-    auto iter = reg_allocs.find(inst);
+    auto iter = vreg_allocs.find(inst);
 
-    if(iter != reg_allocs.end()) {
+    if(iter != vreg_allocs.end()) {
         return values[iter->second];
     }
 
@@ -186,11 +211,10 @@ RootFlowNode::RootFlowNode(
     Prog &prog,
     SymExPool &pool
 ) :
-    FlowNode(CreateBaseFrame(func, pool)),
+    FlowNode(CreateBaseFrame(func, pool), pool),
     func(func),
     baseStore(prog, pool),
-    dataStore(baseStore),
-    pool(pool)
+    dataStore(baseStore)
 {
 }
 
@@ -221,9 +245,9 @@ Block *RootFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSe
 
 SymValue *RootFlowNode::GetResult(Inst *inst)
 {
-    auto iter = reg_allocs.find(inst);
+    auto iter = vreg_allocs.find(inst);
 
-    if(iter != reg_allocs.end()) {
+    if(iter != vreg_allocs.end()) {
         return values[iter->second];
     }
 

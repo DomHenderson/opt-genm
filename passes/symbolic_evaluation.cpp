@@ -163,6 +163,11 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         std::cout<<"Running ret"<<std::endl;
         return Ret(static_cast<ReturnInst*>(&inst), node);
 
+    case Inst::Kind::SET:
+        std::cout<<"Running set"<<std::endl;
+        Set(static_cast<SetInst*>(&inst), node);
+        return std::nullopt;
+        
     case Inst::Kind::SLL:
         std::cout<<"Running sll"<<std::endl;
         LeftLogicalShift(static_cast<SllInst*>(&inst), node);
@@ -221,8 +226,7 @@ SuccessorFlowNode *SymbolicEvaluation::CreateTailCallFlowNode(
     return storagePool.persist(
         previous->CreateTailCallNode(
             *func,
-            args,
-            storagePool
+            args
         )
     );
 }
@@ -250,8 +254,7 @@ SuccessorFlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
         previous->CreateFunctionNode(
             *func,
             args,
-            caller,
-            storagePool
+            caller
         )
     );
 }
@@ -441,8 +444,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
             node->CreateFunctionNode(
                 *FindFuncByName(funcRef->get_name(), prog),
                 args,
-                callInst->getIterator(),
-                storagePool
+                callInst->getIterator()
             )
         );
 
@@ -1009,6 +1011,15 @@ void SymbolicEvaluation::RightLogicalShift(
     );
 }
 
+void SymbolicEvaluation::Set(
+    SetInst *setInst,
+    FlowNode *node
+) {
+    auto value = node->GetResult(setInst->GetValue());
+    std::cout<<"Setting "<<toString(setInst->GetReg())<<" to "<<toString(value)<<std::endl;
+    node->SetRegister(setInst->GetReg()->GetValue(), value);
+}
+
 void SymbolicEvaluation::Store(
     StoreInst *storeInst,
     FlowNode *node
@@ -1044,8 +1055,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::TCall(
     SuccessorFlowNode *newNode = storagePool.persist(
         node->CreateTailCallNode(
             *FindFuncByName(funcRef->get_name(), prog),
-            args,
-            storagePool
+            args
         )
     );
 
