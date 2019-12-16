@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <iterator>
 
 #include <llvm/ADT/iterator.h>

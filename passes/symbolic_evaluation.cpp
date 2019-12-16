@@ -168,6 +168,11 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         Set(static_cast<SetInst*>(&inst), node);
         return std::nullopt;
         
+    case Inst::Kind::SEXT:
+        std::cout<<"Running sign extend"<<std::endl;
+        SExt(static_cast<SExtInst*>(&inst), node);
+        return std::nullopt;
+
     case Inst::Kind::SLL:
         std::cout<<"Running sll"<<std::endl;
         LeftLogicalShift(static_cast<SllInst*>(&inst), node);
@@ -1018,6 +1023,28 @@ void SymbolicEvaluation::Set(
     auto value = node->GetResult(setInst->GetValue());
     std::cout<<"Setting "<<toString(setInst->GetReg())<<" to "<<toString(value)<<std::endl;
     node->SetRegister(setInst->GetReg()->GetValue(), value);
+}
+
+void SymbolicEvaluation::SExt(
+    SExtInst *sExtInst,
+    FlowNode *node
+) {
+    auto op = node->GetResult(sExtInst->GetArg());
+    Type resultType = sExtInst->GetType();
+    unsigned length = bitLength(resultType);
+    switch(op->get_kind()) {
+    case SymValue::Kind::INT: {
+        auto x = static_cast<IntSymValue*>(op);
+        auto value = x->get_value().sext(length);
+        auto result = new IntSymValue(value, resultType);
+        std::cout<<"Sign extending "<<x->toString()<<" to "<<result->toString()<<std::endl;
+        node->AllocateResult(sExtInst, storagePool.persist(result));
+    } break;
+    default: {
+        auto result = new UnknownSymValue(resultType);
+        std::cout<<"Unable to sign extend a non-integer value"<<std::endl;
+    } break;
+    }
 }
 
 void SymbolicEvaluation::Store(
