@@ -107,6 +107,11 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         std::cout<<"Running add"<<std::endl;
         return Add(static_cast<AddInst*>(&inst), node);
 
+    case Inst::Kind::AND:
+        std::cout<<"Running and"<<std::endl;
+        And(static_cast<AndInst*>(&inst), node);
+        return std::nullopt;
+
     case Inst::Kind::ARG:
         std::cout<<"Running arg"<<std::endl;
         Arg(static_cast<ArgInst*>(&inst), node);
@@ -329,6 +334,68 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
         return std::unordered_set<FlowNode*>();
     }
     
+}
+
+void SymbolicEvaluation::And(
+    AndInst *andInst,
+    FlowNode *node
+) {
+    auto [lhs, rhs] = getOperandValues(andInst, node);
+    Type resultType = andInst->GetType();
+    switch(lhs->get_kind()) {
+    case SymValue::Kind::INT: {
+        auto l = static_cast<IntSymValue*>(lhs);
+        if(l->get_value().isAllOnesValue()) {
+            auto result = rhs->copy_cast(resultType);
+            std::cout<<l->toString()<<" is all ones: result = "<<toString(result)<<std::endl;
+            node->AllocateResult(andInst,storagePool.persist(result));
+        } else if (l->get_value().getLimitedValue() == 0) {
+            auto result = new IntSymValue(0, resultType);
+            std::cout<<l->toString()<<" is all zeros: result = "<<toString(result)<<std::endl;
+            node->AllocateResult(andInst,storagePool.persist(result));
+        } else {
+            std::cout<<l->toString()<<" and ";
+            switch(rhs->get_kind()) {
+            case SymValue::Kind::INT: {
+                auto r = static_cast<IntSymValue*>(rhs);
+                std::cout<<r->toString()<<" = ";
+                auto result = new IntSymValue(l->get_value() & r->get_value(), resultType);
+                std::cout<<result->toString()<<std::endl;
+            } break;
+            default:
+                std::cout<<toString(rhs)<<" is not calculable"<<std::endl;
+                node->AllocateResult(andInst, storagePool.persist(new UnknownSymValue(resultType)));
+                break;
+            }
+        }
+    } break;
+    default:
+        switch(rhs->get_kind()) {
+        case SymValue::Kind::INT: {
+            auto r = static_cast<IntSymValue*>(rhs);
+            if(r->get_value().isAllOnesValue()) {
+                auto result = lhs->copy_cast(resultType);
+                std::cout<<r->toString()<<" is all ones: result = "<<toString(result)<<std::endl;
+                node->AllocateResult(andInst,storagePool.persist(result));
+            } else if (r->get_value().getLimitedValue() == 0) {
+                auto result = new IntSymValue(0, resultType);
+                std::cout<<r->toString()<<" is all zeros: result = "<<toString(result)<<std::endl;
+                node->AllocateResult(andInst,storagePool.persist(result));
+            } else {
+                std::cout<<toString(lhs)<<" and "<<r->toString()<<" is not calculable"<<std::endl;
+                node->AllocateResult(andInst, storagePool.persist(new UnknownSymValue(resultType)));
+            }
+        } break;
+        default:
+            if(SymComp::EQ(lhs,rhs) == SymComp::Result::TRUE) {
+                std::cout<<toString(lhs)<<" and "<<toString(rhs)<<" are equal"<<std::endl;
+                node->AllocateResult(andInst, storagePool.persist(lhs->copy_cast(resultType)));
+            } else {
+                std::cout<<toString(lhs)<<" and "<<toString(rhs)<<" is not calculable"<<std::endl;
+                node->AllocateResult(andInst, storagePool.persist(new UnknownSymValue(resultType)));
+            }
+        } break;
+    }
 }
 
 void SymbolicEvaluation::Arg(
