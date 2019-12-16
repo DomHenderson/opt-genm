@@ -14,6 +14,7 @@
 class Func;
 class Prog;
 
+llvm::ilist<Block>::iterator FindBlockByName(std::string_view name, Prog *prog);
 llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 
 std::string toString(ConstantReg* reg);

@@ -17,6 +17,7 @@ public:
     enum class Kind {
         ADDR,
         BOOL,
+        BLOCKREF,
         EXTERN,
         FLOAT,
         FUNCREF,
@@ -47,6 +48,16 @@ private:
     std::string_view name;
     llvm::APInt offset;
     unsigned max;
+};
+
+class BlockRefSymValue: public SymValue {
+public:
+    BlockRefSymValue(std::string_view name, Type type): SymValue(type), name(name) {}
+    Kind get_kind() const override { return Kind::BLOCKREF; }
+    std::string_view get_name() const { return name; }
+    virtual BlockRefSymValue *copy_cast(Type type) const override { return new BlockRefSymValue(name, type); }
+private:
+    std::string_view name;
 };
 
 class BoolSymValue: public SymValue {

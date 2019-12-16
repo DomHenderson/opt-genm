@@ -134,6 +134,10 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         std::cout<<"Running jmp"<<std::endl;
         return Jump(static_cast<JumpInst*>(&inst), node);
 
+    case Inst::Kind::JI:
+        std::cout<<"Running jump indirect"<<std::endl;
+        return JumpIndirect(static_cast<JumpIndirectInst*>(&inst), node);
+    
     case Inst::Kind::LD:
         std::cout<<"Running load"<<std::endl;
         Load(static_cast<LoadInst*>(&inst), node);
@@ -167,7 +171,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         std::cout<<"Running set"<<std::endl;
         Set(static_cast<SetInst*>(&inst), node);
         return std::nullopt;
-        
+
     case Inst::Kind::SEXT:
         std::cout<<"Running sign extend"<<std::endl;
         SExt(static_cast<SExtInst*>(&inst), node);
@@ -628,6 +632,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         if(func->GetName() != node->get_func()->GetName()) {
             std::cout<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<std::endl;
         }
+        std::cout<<"Jumping to block "<<block->GetName()<<std::endl;
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
     } else if (symCond->get_kind() == SymValue::Kind::INT) {
@@ -645,10 +650,12 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         if(func->GetName() != node->get_func()->GetName()) {
             std::cout<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<std::endl;
         }
+        std::cout<<"Jumping to block "<<block->GetName()<<std::endl;
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
     } else {
         std::cout<<"Taking both branches"<<std::endl;
+        std::cout<<"Jumping to blocks "<<trueBlock->GetName()<<" and "<<falseBlock->GetName()<<std::endl;
         result.insert(
             CreateBlockFlowNode(trueBlock->getIterator(), node)
         );
@@ -657,6 +664,29 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         );
     }
     return result;
+}
+
+std::unordered_set<FlowNode*> SymbolicEvaluation::JumpIndirect(
+    JumpIndirectInst *jumpIndirectInst,
+    FlowNode *node
+) {
+    auto target = node->GetResult(jumpIndirectInst->GetTarget());
+    switch(target->get_kind()) {
+    case SymValue::Kind::BLOCKREF: {
+        auto block = static_cast<BlockRefSymValue*>(target);
+        auto iter = FindBlockByName(block->get_name(), prog);
+        if(iter == prog->end()->end()) {
+            std::cout<<"Block not found"<<std::endl;
+            return std::unordered_set<FlowNode*>();
+        }
+        std::unordered_set<FlowNode*> result;
+        result.insert(CreateBlockFlowNode(iter,node));
+        return result;
+    } break;
+    default:
+        std::cout<<"Unable to jump to "<<toString(target)<<std::endl;
+        return std::unordered_set<FlowNode*>();
+    }
 }
 
 void SymbolicEvaluation::LeftLogicalShift(
@@ -1167,7 +1197,11 @@ void SymbolicEvaluation::AllocateValue(
                 ));
             }
         } break;
-        
+        case Global::Kind::BLOCK:
+            std::cout<<"Alocating global block "<<g->GetName()<<std::endl;
+            result = storagePool.persist(new BlockRefSymValue(g->GetName(), type));
+            break;
+
         case Global::Kind::EXTERN:
             std::cout<<"Allocating global extern "<<g->GetName()<<std::endl;
             result = storagePool.persist(new ExternSymValue(g->GetName(), type));

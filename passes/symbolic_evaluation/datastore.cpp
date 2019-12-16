@@ -271,7 +271,7 @@ BaseStore::BaseStore(
                     case Global::Kind::BLOCK:
                         std::cout<<"Block "<<g->GetName()<<std::endl;
                         atoms[atomIdx]->addSymValue(*storagePool.persist(
-                            new UnknownSymValue(Type::U64)
+                            new BlockRefSymValue(g->GetName(), Type::U64)
                         ));
                         break;
                     case Global::Kind::EXTERN: {
@@ -281,13 +281,12 @@ BaseStore::BaseStore(
                         );
                         atoms[atomIdx]->addSymValue(*v);
                     } break;
-                    case Global::Kind::FUNC: {
+                    case Global::Kind::FUNC:
                         std::cout<<"Func "<<g->GetName()<<std::endl;
-                        auto v = storagePool.persist(
+                        atoms[atomIdx]->addSymValue(*storagePool.persist(
                             new FuncRefSymValue(g->GetName(), Type::U64)
-                        );
-                        atoms[atomIdx]->addSymValue(*v);
-                    } break;
+                        ));
+                        break;
                     case Global::Kind::SYMBOL:
                         std::cout<<"Symbol "<<g->GetName()<<std::endl;
                         atoms[atomIdx]->addSymValue(*storagePool.persist(

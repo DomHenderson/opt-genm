@@ -22,6 +22,22 @@
 #include "utilities.h"
 #include "symvalue.h"
 
+llvm::ilist<Block>::iterator FindBlockByName(
+    std::string_view name,
+    Prog *prog
+) {
+    for(auto &func: *prog) {
+        for(auto &block: func) {
+            if(block.GetName() == name) {
+                std::cout<<"Found "<<name<<std::endl;
+                return block.getIterator();
+            }
+        }
+    }
+    std::cout<<"Failed to find block "<<name<<std::endl;
+    return prog->end()->end();
+}
+
 llvm::ilist<Func>::iterator FindFuncByName(
     std::string_view name,
     Prog *prog
@@ -237,6 +253,10 @@ std::string toString(SymValue &value)
     case SymValue::Kind::ADDR: {
         auto addr = static_cast<AddrSymValue&>(value);
         stream<<"addr "<<addr.toString();
+    } break;
+    case SymValue::Kind::BLOCKREF: {
+        auto b = static_cast<BlockRefSymValue&>(value);
+        stream<<"block "<<b.get_name();
     } break;
     case SymValue::Kind::BOOL: {
         auto b = static_cast<BoolSymValue&>(value);

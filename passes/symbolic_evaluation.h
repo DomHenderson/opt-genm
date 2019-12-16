@@ -50,6 +50,7 @@ private:
     void Cmp(CmpInst *cmpInst, FlowNode *node);
     std::unordered_set<FlowNode*> Jump(JumpInst *jumpInst, FlowNode *node);
     std::unordered_set<FlowNode*> JumpCond(JumpCondInst *jumpCondInst, FlowNode *node);
+    std::unordered_set<FlowNode*> JumpIndirect(JumpIndirectInst *jumpIndirectInst, FlowNode *node);
     void LeftLogicalShift(SllInst *sllInst, FlowNode *node);
     void Load(LoadInst *loadInst, FlowNode *node);
     void Mov(MovInst *movInst, FlowNode *node);

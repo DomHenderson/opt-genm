@@ -43,6 +43,13 @@ Result SymComp::EQ(SymValue *lv, SymValue *rv)
             auto r = static_cast<AddrSymValue*>(rv);
             return FromBool(l->get_name() == r->get_name() && l->get_offset() == r->get_offset());
         }
+
+        case SymValue::Kind::BLOCKREF: {
+            auto l = static_cast<BlockRefSymValue*>(lv);
+            auto r = static_cast<BlockRefSymValue*>(rv);
+            return FromBool(l->get_name() == r->get_name());
+        }
+
         case SymValue::Kind::BOOL: {
             auto l = static_cast<BoolSymValue*>(lv);
             auto r = static_cast<BoolSymValue*>(rv);
