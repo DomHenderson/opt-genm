@@ -41,6 +41,35 @@ llvm::ilist<Func>::iterator FindFuncByName(
     return result;
 }
 
+std::string toString(ConstantReg *reg)
+{
+    if(reg == nullptr) {
+        return "nullptr";
+    }
+    switch(reg->GetValue()) {
+        case ConstantReg::Kind::RAX: return "RAX";
+        case ConstantReg::Kind::RBX: return "RBX";
+        case ConstantReg::Kind::RCX: return "RCX";
+        case ConstantReg::Kind::RDX: return "RDX";
+        case ConstantReg::Kind::RSI: return "RSI";
+        case ConstantReg::Kind::RDI: return "RDI";
+        case ConstantReg::Kind::RSP: return "RSP";
+        case ConstantReg::Kind::RBP: return "RBP";
+        case ConstantReg::Kind::R8: return "R8";
+        case ConstantReg::Kind::R9: return "R9";
+        case ConstantReg::Kind::R10: return "R10";
+        case ConstantReg::Kind::R11: return "R11";
+        case ConstantReg::Kind::R12: return "R12";
+        case ConstantReg::Kind::R13: return "R13";
+        case ConstantReg::Kind::R14: return "R14";
+        case ConstantReg::Kind::R15: return "R15";
+        case ConstantReg::Kind::RET_ADDR: return "RET_ADDR";
+        case ConstantReg::Kind::FRAME_ADDR: return "FRAME_ADDR";
+        case ConstantReg::Kind::PC: return "PC";
+        default: return "Unknown";
+    }
+}
+
 std::string toString(Inst::Kind k)
 {
     switch(k) {
@@ -131,30 +160,9 @@ std::string toString(Inst &inst)
                 stream<<"Constant"<<cf->GetValue()<<" ";
             } break;
             case Constant::REG: {
-                stream<<"ConstantReg"<<" ";
+                stream<<"ConstantReg ";
                 ConstantReg *cr = static_cast<ConstantReg*>(c);
-                switch(cr->GetValue()) {
-                case ConstantReg::Kind::RAX: stream<<"RAX"; break;
-                case ConstantReg::Kind::RBX: stream<<"RBX"; break;
-                case ConstantReg::Kind::RCX: stream<<"RCX"; break;
-                case ConstantReg::Kind::RDX: stream<<"RDX"; break;
-                case ConstantReg::Kind::RSI: stream<<"RSI"; break;
-                case ConstantReg::Kind::RDI: stream<<"RDI"; break;
-                case ConstantReg::Kind::RSP: stream<<"RSP"; break;
-                case ConstantReg::Kind::RBP: stream<<"RBP"; break;
-                case ConstantReg::Kind::R8: stream<<"R8"; break;
-                case ConstantReg::Kind::R9: stream<<"R9"; break;
-                case ConstantReg::Kind::R10: stream<<"R10"; break;
-                case ConstantReg::Kind::R11: stream<<"R11"; break;
-                case ConstantReg::Kind::R12: stream<<"R12"; break;
-                case ConstantReg::Kind::R13: stream<<"R13"; break;
-                case ConstantReg::Kind::R14: stream<<"R14"; break;
-                case ConstantReg::Kind::R15: stream<<"R15"; break;
-                case ConstantReg::Kind::RET_ADDR: stream<<"RET_ADDR"; break;
-                case ConstantReg::Kind::FRAME_ADDR: stream<<"FRAME_ADDR"; break;
-                case ConstantReg::Kind::PC: stream<<"PC"; break;
-                default: stream<<"Unknown";
-                }
+                stream<<toString(cr);
             } break;
             }
         } break;

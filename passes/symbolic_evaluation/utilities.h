@@ -6,6 +6,7 @@
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/ilist.h>
 
+#include "core/constant.h"
 #include "core/inst.h"
 #include "flownode.h"
 #include "symvalue.h"
@@ -15,6 +16,7 @@ class Prog;
 
 llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 
+std::string toString(ConstantReg* reg);
 std::string toString(Inst::Kind k);
 std::string toString(Inst &inst);
 std::string toString(Inst *inst);
