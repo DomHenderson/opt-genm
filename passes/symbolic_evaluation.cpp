@@ -53,6 +53,7 @@ const char *SymbolicEvaluation::GetPassName() const
 
 void SymbolicEvaluation::Run(Prog *program)
 {
+    z3::set_param("parallel.enable", true);
     Z3Test();
 
     PrintCodeInfo(program);
