@@ -264,9 +264,11 @@ Block *RootFlowNode::ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSe
 
 SymValue *RootFlowNode::GetResult(Inst *inst)
 {
+    std::cout<<"Getting result for "<<toString(inst)<<std::endl;
     auto iter = vreg_allocs.find(inst);
 
     if(iter != vreg_allocs.end()) {
+        std::cout<<"Found "<<toString(values[iter->second])<<std::endl;
         return values[iter->second];
     }
 

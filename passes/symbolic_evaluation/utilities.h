@@ -15,6 +15,7 @@
 class Func;
 class Prog;
 
+Atom *FindAtomByName(std::string_view name, Prog *prog);
 llvm::ilist<Block>::iterator FindBlockByName(std::string_view name, Prog *prog);
 llvm::ilist<Func>::iterator FindFuncByName(std::string_view name, Prog *prog);
 

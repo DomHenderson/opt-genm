@@ -22,6 +22,18 @@
 #include "utilities.h"
 #include "symvalue.h"
 
+Atom *FindAtomByName(std::string_view name, Prog *prog)
+{
+    for(auto& segment: prog->data()) {
+        for(auto& atom: segment) {
+            if(atom.GetName() == name) {
+                return &atom;
+            }
+        }
+    }
+    return nullptr;
+}
+
 llvm::ilist<Block>::iterator FindBlockByName(
     std::string_view name,
     Prog *prog

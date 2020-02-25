@@ -44,30 +44,31 @@ private:
     void StepNode(FlowNode *node);
 
     void Optimise();
+    void Rewrite();
 
     std::optional<std::unordered_set<FlowNode*>> Add(AddInst *addInst, FlowNode *node);
-    void And(AndInst *andInst, FlowNode *node);
-    void Arg(ArgInst *argInst, FlowNode *node);
+    void                                         And(AndInst *andInst, FlowNode *node);
+    void                                         Arg(ArgInst *argInst, FlowNode *node);
     std::optional<std::unordered_set<FlowNode*>> Call(CallInst *callInst, FlowNode *node);
-    void Cmp(CmpInst *cmpInst, FlowNode *node);
-    std::unordered_set<FlowNode*> Jump(JumpInst *jumpInst, FlowNode *node);
-    std::unordered_set<FlowNode*> JumpCond(JumpCondInst *jumpCondInst, FlowNode *node);
-    std::unordered_set<FlowNode*> JumpIndirect(JumpIndirectInst *jumpIndirectInst, FlowNode *node);
-    void LeftLogicalShift(SllInst *sllInst, FlowNode *node);
-    void Load(LoadInst *loadInst, FlowNode *node);
-    void Mov(MovInst *movInst, FlowNode *node);
-    void Mul(MulInst *mulInst, FlowNode *node);
-    void Rem(RemInst *remInst, FlowNode *node);
-    std::unordered_set<FlowNode*> Ret(ReturnInst *returnInst, FlowNode *node);
-    void RightArithmeticShift(SraInst *sraInst, FlowNode *node);
-    void RightLogicalShift(SrlInst *srlInst, FlowNode *node);
-    void Set(SetInst* setInst, FlowNode* node);
-    void SExt(SExtInst* sExtInst, FlowNode *node);
-    void Store(StoreInst *storeInst, FlowNode *node);
+    void                                         Cmp(CmpInst *cmpInst, FlowNode *node);
+    std::unordered_set<FlowNode*>                Jump(JumpInst *jumpInst, FlowNode *node);
+    std::unordered_set<FlowNode*>                JumpCond(JumpCondInst *jumpCondInst, FlowNode *node);
+    std::unordered_set<FlowNode*>                JumpIndirect(JumpIndirectInst *jumpIndirectInst, FlowNode *node);
+    void                                         LeftLogicalShift(SllInst *sllInst, FlowNode *node);
+    void                                         Load(LoadInst *loadInst, FlowNode *node);
+    void                                         Mov(MovInst *movInst, FlowNode *node);
+    void                                         Mul(MulInst *mulInst, FlowNode *node);
+    void                                         Rem(RemInst *remInst, FlowNode *node);
+    std::unordered_set<FlowNode*>                Ret(ReturnInst *returnInst, FlowNode *node);
+    void                                         RightArithmeticShift(SraInst *sraInst, FlowNode *node);
+    void                                         RightLogicalShift(SrlInst *srlInst, FlowNode *node);
+    void                                         Set(SetInst* setInst, FlowNode* node);
+    void                                         SExt(SExtInst* sExtInst, FlowNode *node);
+    void                                         Store(StoreInst *storeInst, FlowNode *node);
     std::optional<std::unordered_set<FlowNode*>> Sub(SubInst* subInst, FlowNode *node);
-    std::unordered_set<FlowNode*> TCall(TailCallInst *tailCallInst, FlowNode *node);
-    void Phi(PhiInst *phiInst, FlowNode *node);
-    void ZExt(ZExtInst* zExtInst, FlowNode *node);
+    std::unordered_set<FlowNode*>                TCall(TailCallInst *tailCallInst, FlowNode *node);
+    void                                         Phi(PhiInst *phiInst, FlowNode *node);
+    void                                         ZExt(ZExtInst* zExtInst, FlowNode *node);
 
     void AllocateValue(Inst *inst, Value *value, Type type, FlowNode *node);
 
@@ -80,7 +81,7 @@ private:
     Prog *prog;
 
     std::stack<FlowNode*> frontier;
-    std::vector<FlowNode*> finishedNodes;
+    std::unordered_map<FlowNode*, SymValue*> finishedNodes;
 
     bool carryOn = true;
     unsigned int count = 0;
