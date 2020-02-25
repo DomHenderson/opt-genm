@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -25,11 +26,15 @@
 #include "core/prog.h"
 #include "core/value.h"
 #include "passes/symbolic_evaluation.h"
+#include "symbolic_evaluation/datastore.h"
 #include "symbolic_evaluation/frame.h"
+#include "symbolic_evaluation/externstubs.h"
 #include "symbolic_evaluation/storagepool.h"
 #include "symbolic_evaluation/symvalue.h"
 #include "symbolic_evaluation/symvaluecomp.h"
 #include "symbolic_evaluation/utilities.h"
+
+constexpr std::string_view start_function = "main";
 
 //-----------------------------------------------------------------------------
 
@@ -65,15 +70,17 @@ void SymbolicEvaluation::Run(Prog *program)
         StepNode(node);
     }
 
-    if(!frontier.empty()) {
-        std::cout<<"Finished early"<<std::endl;
-    }
+    std::cout<<(frontier.empty() ? "Finished" : "Finished early")<<std::endl;
 
     std::cout<<std::endl;
     std::cout<<"----------------------------------------"<<std::endl;
     std::cout<<"EXECUTION END"<<std::endl;
     std::cout<<"----------------------------------------"<<std::endl;
     std::cout<<std::endl;
+
+    if(frontier.empty()) {
+        Optimise();
+    }
 }
 
 void SymbolicEvaluation::StepNode(FlowNode *node)
@@ -197,6 +204,11 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         Store(static_cast<StoreInst*>(&inst), node);
         return std::nullopt;
 
+    case Inst::Kind::SUB:
+        std::cout<<"Running sub"<<std::endl;
+        Sub(static_cast<SubInst*>(&inst), node);
+        return std::nullopt;
+
     case Inst::Kind::TCALL:
         std::cout<<"Running tail call"<<std::endl;
         return TCall(static_cast<TailCallInst*>(&inst), node);
@@ -211,12 +223,288 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
     }
 }
 
+auto AnalyseLogs(const std::vector<FlowNode*>& finishedNodes)
+{
+    //A mapping from read instructions to all the values they read
+    //If all these values are equal and evaluable at compile time, the instruction can be replaced with a move
+    std::unordered_map<Inst*, std::vector<SymValue*>> readResults;
+    std::unordered_map<FlowNode*, std::unordered_map<DataStore::Write*, std::pair<SymValue*,SymValue*>>> precalculableWrites;
+
+    for(auto& node: finishedNodes) {
+        auto log = node->get_store().getFullLog();
+        std::cout<<"Log has length "<<log.size()<<std::endl;
+
+
+        //Logged writes which come before any read to the given location
+        std::unordered_map<DataStore::Write*,std::pair<SymValue*,SymValue*>> writesBeforeRead;
+
+        for(auto it = log.begin(); it < log.end(); ++it) {
+            DataStore::Action *action = *it;
+            switch(action->get_kind()) {
+            case DataStore::Action::Kind::READ: {
+                auto *read = static_cast<DataStore::Read*>(action);
+                Inst *inst = read->get_inst();
+                if(readResults.find(inst) == readResults.end()) {
+                    readResults[inst] = std::vector<SymValue*>();
+                }
+                readResults[inst].push_back(read->get_value());
+            } break;
+
+            case DataStore::Action::Kind::WRITE: {
+                auto write = static_cast<DataStore::Write*>(action);
+                SymValue *write_addr = write->get_addr();
+                bool writeBeforeRead = std::all_of(
+                    log.begin(),
+                    it,
+                    [write_addr](auto action) {
+                        if(action->get_kind() == DataStore::Action::Kind::READ) {
+                            auto read = static_cast<DataStore::Read*>(action);
+                            SymValue *read_addr = read->get_addr();
+                            return SymComp::EQ(read_addr, write_addr) == SymComp::Result::FALSE;
+                        } else if (action->get_kind() == DataStore::Action::Kind::INVALIDATE) {
+                            return false;
+                        } else {
+                            return true;
+                        }
+                    }
+                );
+
+                if(writeBeforeRead) {
+                    writesBeforeRead[write] = {write_addr, write->get_value()};
+                }
+            }
+            }
+        }
+
+        precalculableWrites[node] = writesBeforeRead;
+    }
+
+    auto pair = std::make_pair(readResults, precalculableWrites);
+
+    return pair;
+}
+
+auto CalculateReadReplacements(const std::unordered_map<Inst*, std::vector<SymValue*>>& readResults)
+{
+    std::unordered_map<Inst*, SymValue*> readReplacements;
+
+    //Iterate over logged reads and put those which always take the same value in readReplacements
+    for(auto& [inst, values]: readResults) {
+        std::cout<<toString(inst)<<" takes the values "<<std::endl;
+        for(auto& i: values) {
+            std::cout<<"    "<<toString(i)<<std::endl;
+        }
+        auto notEqual = std::adjacent_find(values.begin(), values.end(), [](auto left, auto right) {
+            return SymComp::EQ(left, right) != SymComp::Result::TRUE;
+        });
+        if(notEqual == values.end()) {
+            std::cout<<"Values for "<<toString(inst)<<" are equal"<<std::endl;
+            readReplacements[inst] = values[0];
+        } else {
+            std::cout<<"Values for "<<toString(inst)<<" differ"<<std::endl;
+        }
+    }
+    return readReplacements;
+}
+
+void EnactReadReplacements(const std::unordered_map<Inst*, SymValue*>& readReplacements)
+{
+    for(auto& [inst, value]: readReplacements) {
+        if(value == nullptr) {
+            std::cout<<"WARNING: value == nullptr"<<std::endl;
+            continue;
+        }
+        if(inst->GetNumRets() == 0 || inst->GetType(0) != value->get_type()) {
+            std::cout<<"WARNING: types don't match"<<std::endl;
+        }
+        switch(value->get_kind()) {
+        case SymValue::Kind::INT: {
+            std::cout<<"Value is int"<<std::endl;
+            auto intSymValue = static_cast<IntSymValue*>(value);
+            switch(value->get_type()) {
+            case Type::U64: {
+                std::cout<<"Type is U64"<<std::endl;
+                uint64_t val = intSymValue->get_value().getLimitedValue();
+                std::cout<<"Numeric value is "<<val<<std::endl;
+                ConstantInt *replacementValue = new ConstantInt(val);
+                std::cout<<"Created constant"<<std::endl;
+                MovInst *replacement = new MovInst(value->get_type(), replacementValue, AnnotSet());
+                inst->getParent()->AddInst(replacement, inst);
+                std::cout<<"Created movInst"<<std::endl;
+                inst->replaceAllUsesWith(replacement);
+                inst->eraseFromParent();
+                std::cout<<"Replaced"<<std::endl;
+            }
+            }
+        } break;
+        default:
+            std::cout<<"Not implemented yet"<<std::endl;
+        }
+    }
+}
+
+auto FilterPrecalculableWrites(const std::unordered_map<FlowNode*, std::unordered_map<DataStore::Write*, std::pair<SymValue*,SymValue*>>>& precalculableWrites)
+{
+    std::vector<std::tuple<SymValue*,SymValue*,Inst*>> result;
+
+    //Only need to filter when there are multiple flownodes
+    if(precalculableWrites.size() < 2) {
+        for(auto& [node, map]: precalculableWrites) {
+            for(auto& [write, pair]: map) {
+                auto& [addr, val] = pair;
+                result.push_back({addr, val, write->get_inst()});
+            }
+        }
+        return result;
+    }
+
+    //std::unordered_map<std::pair<SymValue*,SymValue*>, Inst*> validWrites;
+
+    for(auto& [node1, writes]: precalculableWrites) {
+        std::unordered_map<FlowNode*,std::unordered_set<DataStore::Write*>> validWrites;
+        for(auto& [node2, _]: precalculableWrites) {
+            if (node1 == node2) continue;
+            validWrites[node2] = std::unordered_set<DataStore::Write*>();
+
+            for(auto& [write, pair]: writes) {
+                auto& [write_address, write_value] = pair;
+
+                auto node2Log = node2->get_store().getFullLog();
+                bool valid = true;
+                for(auto& action: node2Log) {
+                    if(action->get_kind() == DataStore::Action::Kind::READ) {
+                        auto read = static_cast<DataStore::Read*>(action);
+                        if(SymComp::EQ(read->get_addr(), write_address) != SymComp::Result::FALSE) {
+                            valid = !(SymComp::EQ(read->get_value(), write_value) != SymComp::Result::TRUE);
+                            break;
+                        }
+                    }
+                }
+                if(valid) {
+                    validWrites[node2].insert(write);
+                }
+            }
+        }
+
+        auto intersection = validWrites.begin()->second;
+        for(auto& [node, set]: validWrites) {
+            auto temp = std::unordered_set<DataStore::Write*>();
+            std::set_intersection(
+                intersection.begin(), intersection.end(),
+                set.begin(), set.end(),
+                std::inserter(temp, temp.begin())
+            );
+            intersection = temp;
+        }
+        for(auto& write: intersection) {
+            auto& [addr, val] = precalculableWrites.at(node1).at(write);
+            result.push_back({addr, val, write->get_inst()});
+        }
+    }
+
+    return result;
+}
+
+void updateStaticDataStore(
+    Prog* prog,
+    std::vector<std::tuple<SymValue*, SymValue*, Inst*>> writesBeforeRead,
+    std::function<unsigned(std::string_view)> GetOffset
+) {
+    for(auto& [addr, value, inst]: writesBeforeRead) {
+        if(value == nullptr) {
+            std::cout<<"Value is a nullptr"<<std::endl;
+            continue;
+        }
+        std::cout<<toString(inst)<<" writes "<<toString(value)<<" at "<<toString(addr)<<std::endl;
+        if(addr->get_kind() == SymValue::Kind::STATICPTR) {
+            auto address = static_cast<StaticPtrSymValue*>(addr);
+            auto name = address->get_name();
+            //TODO bounds check
+            auto offset = address->get_offset().getLimitedValue();
+            for(auto& dataSegment: prog->data()) {
+                for(auto& atom: dataSegment) {
+                    if(atom.GetName() != name) continue;
+                    std::cout<<"Found "<<name<<std::endl;
+                    unsigned labelOffset = GetOffset(address->get_name());
+                    std::cout<<"Label offset: "<<labelOffset<<std::endl;
+                    Atom::iterator itemIter = atom.begin();
+                    if(labelOffset <= offset) {
+                        unsigned atomOffset = offset - labelOffset;
+                        while(atomOffset > 0 ) {
+                            std::cout<<"TODO: implement search"<<std::endl;
+                            atomOffset = 0;
+                        }
+                        std::cout<<"Found item"<<std::endl;
+                    } else {
+                        std::cout<<"TODO: find item before label"<<std::endl;
+                    }
+                    auto item = *itemIter;
+                    switch(value->get_kind()) {
+                    case SymValue::Kind::INT: {
+                        auto intSymValue = static_cast<IntSymValue*>(value);
+                        std::cout<<"Value is an int"<<std::endl;
+                        switch(item->GetKind()) {
+                        case Item::Kind::ALIGN: std::cout<<"WARNING: Attempting to overwrite align with int"<<std::endl; break;
+                        case Item::Kind::END: std::cout<<"WARNING: Attempting to overwrite end"<<std::endl; break;
+                        case Item::Kind::FLOAT64: std::cout<<"WARNING: Attempting to overwrite float with int"<<std::endl; break;
+                        case Item::Kind::INT8: std::cout<<"WARNING: Not implemented"<<std::endl; break;
+                        case Item::Kind::INT16: std::cout<<"WARNING: Not implemented"<<std::endl; break;
+                        case Item::Kind::INT32: std::cout<<"WARNING: Not implemented"<<std::endl; break;
+                        case Item::Kind::INT64: {
+                            unsigned typeLength = byteLength(value->get_type());
+                            std::cout<<"Type length: "<<typeLength<<std::endl;
+                            if(typeLength != 8) {
+                                std::cout<<"Attempting to overwrite int of length "<<8<<" with int of length "<<typeLength<<std::endl;
+                            } else {
+                                //TODO bounds checking
+                                int64_t writeValue = intSymValue->get_value().getLimitedValue();
+                                std::cout<<"Write value: "<<writeValue<<std::endl;
+                                Item *newItem = new (item) Item(Item::Kind::INT64, writeValue);
+                                std::cout<<"Created new item"<<std::endl;
+                                inst->eraseFromParent();
+                                std::cout<<"Erased store"<<std::endl;
+                            }
+                        } break;
+                        case Item::Kind::SPACE: std::cout<<"WARNING: Not implemented"<<std::endl; break;
+                        case Item::Kind::STRING: std::cout<<"WARNING: Not implemented"<<std::endl; break;
+                        case Item::Kind::SYMBOL: std::cout<<"WARNING: Not implemented"<<std::endl; break;
+                        }
+                    } break;
+                    default:
+                        std::cout<<"Unimplemented"<<std::endl;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void SymbolicEvaluation::Optimise()
+{
+    std::cout<<"Optimising"<<std::endl;
+    std::cout<<finishedNodes.size()<<" finished nodes"<<std::endl;
+
+    auto [readResults, precalculableWrites] = AnalyseLogs(finishedNodes);
+    auto readReplacements = CalculateReadReplacements(readResults);
+    EnactReadReplacements(readReplacements);
+    auto filteredWrites = FilterPrecalculableWrites(precalculableWrites);
+    updateStaticDataStore(
+        prog,
+        filteredWrites,
+        [node=finishedNodes[0]](std::string_view name) {
+            return node->get_store().getLabel(name)->offset;
+        }
+    );
+
+}
+
 //-----------------------------------------------------------------------------
 
 RootFlowNode *SymbolicEvaluation::CreateRootNode()
 {
     PrintDataInfo(prog);
-    auto startFunc = FindFuncByName("caml_program", prog);
+    auto startFunc = FindFuncByName(start_function, prog);
     if(startFunc == prog->end()) {
         std::cout<<"Failed to create root node"<<std::endl;
         return nullptr;
@@ -281,16 +569,16 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
 
     try {
         switch(lhs->get_kind()) {
-        case SymValue::Kind::ADDR: {
-            AddrSymValue *laddr = static_cast<AddrSymValue*>(lhs);
+        case SymValue::Kind::STATICPTR: {
+            StaticPtrSymValue *laddr = static_cast<StaticPtrSymValue*>(lhs);
             switch(rhs->get_kind()) {
             case SymValue::Kind::INT: {
                 IntSymValue *rint = static_cast<IntSymValue*>(rhs);
-                result = new AddrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), laddr->get_max(), resultType);
-                std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
+                result = new StaticPtrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), laddr->get_max(), resultType);
+                std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<std::endl;
             } break;
             default:
-                std::cout<<"WARNING: Adding ADDR and not INT"<<std::endl;
+                std::cout<<"WARNING: Adding STATICPTR and not INT"<<std::endl;
                 result = new UnknownSymValue(resultType);
                 break;
             }
@@ -298,10 +586,10 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
         case SymValue::Kind::INT: {
             IntSymValue *lint = static_cast<IntSymValue*>(lhs);
             switch(rhs->get_kind()) {
-            case SymValue::Kind::ADDR: {
-                AddrSymValue *raddr = static_cast<AddrSymValue*>(rhs);
-                result = new AddrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), raddr->get_max(), resultType);
-                std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<AddrSymValue*>(result)->toString()<<std::endl;
+            case SymValue::Kind::STATICPTR: {
+                StaticPtrSymValue *raddr = static_cast<StaticPtrSymValue*>(rhs);
+                result = new StaticPtrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), raddr->get_max(), resultType);
+                std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<std::endl;
             } break;
             case SymValue::Kind::FLOAT: {
                 auto rf = static_cast<FloatSymValue*>(rhs);
@@ -438,16 +726,16 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
         return std::unordered_set<FlowNode*>();
     }
 
+    std::vector<SymValue*> args;
+    std::transform(
+        callInst->arg_begin(), callInst->arg_end(),
+        std::back_inserter(args),
+        [this, node](auto x) { return node->GetResult(x); }
+    );
+
     switch(v->get_kind()) {
     case SymValue::Kind::FUNCREF: {
         auto funcRef = static_cast<FuncRefSymValue*>(v);
-
-        std::vector<SymValue*> args;
-        std::transform(
-            callInst->arg_begin(), callInst->arg_end(),
-            std::back_inserter(args),
-            [this, node](auto x) { return node->GetResult(x); }
-        );
         
         SuccessorFlowNode *newNode = storagePool.persist(
             node->CreateFunctionNode(
@@ -466,58 +754,15 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
         auto ext = static_cast<ExternSymValue*>(v);
         bool evaluable = false;
         std::cout<<"Calling extern "<<ext->get_name()<<std::endl;
-        if(knownSafeExtern(ext->get_name())) {
+        if(externHasStub(ext->get_name())) {
+            evaluable = true;
+            runExtern(ext->get_name(), args, node, callInst->GetType(), storagePool);
+        } else if(knownSafeExtern(ext->get_name())) {
             std::cout<<"Not invalidating store"<<std::endl;
-            if(ext->get_name() == "strlen") {
-                SymValue *arg = node->GetResult(*callInst->arg_begin());
-                if(arg->get_kind() == SymValue::Kind::ADDR) {
-                    std::cout<<"Running strlen"<<std::endl;
-                    auto addr = static_cast<AddrSymValue*>(arg);
-                    evaluable = true;
-                    auto label = node->get_store().getLabel(addr->get_name());
-                    unsigned length = 0;
-                    AddrSymValue* i;
-                    while(true) {
-                        std::cout<<"Reading at length "<<length<<std::endl;
-                        try {
-                            i = storagePool.persist(new AddrSymValue(
-                                addr->get_name(),
-                                addr->get_offset() + length,
-                                addr->get_max(),
-                                addr->get_type()
-                            ));
-                        } catch (OffsetOutOfBoundsException e) {
-                            std::cout<<"Offset "<<addr->get_offset().getLimitedValue()+length<<" out of bounds"<<std::endl;
-                            return std::unordered_set<FlowNode*>();
-                        }
-                        auto read = node->get_store().read(i, 1, Type::U8);
-                        if(read == nullptr) {
-                            std::cout<<"Read returned nullptr"<<std::endl;
-                            return std::unordered_set<FlowNode*>();
-                        } else if (read->get_kind() == SymValue::Kind::INT) {
-                            auto c = static_cast<IntSymValue*>(read);
-                            if(c->get_value().getLimitedValue() == 0) {
-                                std::cout<<"Found a zero at length "<<length<<std::endl;
-                                node->AllocateResult(callInst, storagePool.persist(
-                                    new IntSymValue(
-                                        length,
-                                        *callInst->GetType()
-                                    )
-                                ));
-                                return std::nullopt;
-                            }
-                        } else {
-                            std::cout<<"Found a non-int value at "<<length<<std::endl;
-                            node->AllocateResult(callInst, storagePool.persist(new UnknownSymValue(*callInst->GetType())));
-                            return std::nullopt;
-                        }
-                        ++length;
-                    }
-                }
-            }
         } else {
             std::cout<<"Invalidating store"<<std::endl;
-            node->get_store().invalidate();
+            //TODO DO INVALIDATE
+            //node->get_store().invalidate();
         }
         
         if(!evaluable && !callInst->IsVoid()){
@@ -731,7 +976,7 @@ void SymbolicEvaluation::Load(
     FlowNode *node
 ) {
     SymValue *addr = node->GetResult(loadInst->GetAddr());
-    node->AllocateResult(loadInst,node->get_store().read(addr, loadInst->GetLoadSize(), loadInst->GetType()));
+    node->AllocateResult(loadInst,node->get_store().read(addr, loadInst->GetLoadSize(), loadInst->GetType(), loadInst));
 }
 
 void SymbolicEvaluation::Mov(
@@ -961,7 +1206,12 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     Inst *caller = node->get_frame().get_caller();
     std::cout<<"Caller: "<<toString(caller)<<std::endl;
     FlowNode *newNode = CreateReturnFlowNode(node);
-    if(!caller->IsVoid()) {
+    if(newNode == nullptr) {
+        SymValue *returnValue = node->GetResult(returnInst->GetValue());
+        node->AllocateResult(returnInst, returnValue);
+        finishedNodes.push_back(node);
+        return std::unordered_set<FlowNode*>();
+    } else if(!caller->IsVoid()) {
         std::cout<<"Caller is not void"<<std::endl;
         SymValue *returnValue = node->GetResult(returnInst->GetValue());
         std::cout<<"Return value "<<toString(returnValue)<<std::endl;
@@ -1083,7 +1333,89 @@ void SymbolicEvaluation::Store(
 ) {
     SymValue *addr = node->GetResult(storeInst->GetAddr());
     SymValue *value = node->GetResult(storeInst->GetVal());
-    node->get_store().write(addr, value);
+    node->get_store().write(addr, value, storeInst);
+}
+
+std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Sub(
+    SubInst *subInst,
+    FlowNode *node
+) {
+    auto [lhs, rhs] = getOperandValues(subInst, node);
+
+    SymValue *result;
+    Type resultType = subInst->GetType();
+
+    try {
+        switch(lhs->get_kind()) {
+        case SymValue::Kind::STATICPTR: {
+            StaticPtrSymValue *laddr = static_cast<StaticPtrSymValue*>(lhs);
+            switch(rhs->get_kind()) {
+            case SymValue::Kind::INT: {
+                IntSymValue *rint = static_cast<IntSymValue*>(rhs);
+                result = new StaticPtrSymValue(laddr->get_name(), laddr->get_offset()-rint->get_value(), laddr->get_max(), resultType);
+                std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<std::endl;
+            } break;
+            case SymValue::Kind::STATICPTR: {
+                auto raddr = static_cast<StaticPtrSymValue*>(rhs);
+                if(raddr->get_name() == laddr->get_name()) {
+                    result = new IntSymValue(laddr->get_offset()-raddr->get_offset(), resultType);
+                } else {
+                    std::cout<<"WARNING: Subtracting pointers to different atoms"<<std::endl;
+                    result = new UnknownSymValue(resultType);
+                }
+            } break;
+            default:
+                std::cout<<"WARNING: Subtracting "<<toString(rhs->get_kind())<<" from STATICPTR"<<std::endl;
+                result = new UnknownSymValue(resultType);
+                break;
+            }
+        } break;
+        case SymValue::Kind::INT: {
+            IntSymValue *lint = static_cast<IntSymValue*>(lhs);
+            switch(rhs->get_kind()) {
+            case SymValue::Kind::FLOAT: {
+                auto rf = static_cast<FloatSymValue*>(rhs);
+                if(resultType == Type::F64) {
+                    auto resultValue = llvm::APFloat(static_cast<double>(0));
+                    resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                    resultValue = resultValue - rf->get_value();
+                    result = new FloatSymValue(resultValue, resultType);
+                    std::cout<<lint->toString()<<"-"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                }else if (resultType == Type::F32) {
+                    auto resultValue = llvm::APFloat(static_cast<float>(0));
+                    resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
+                    resultValue = resultValue - rf->get_value();
+                    result = new FloatSymValue(resultValue, resultType);
+                    std::cout<<lint->toString()<<"-"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                } else {
+                    std::cout<<"WARNING: Subtracting float from int and not expecting float as a result"<<std::endl;
+                    result = new UnknownSymValue(resultType);
+                }
+            } break;
+            case SymValue::Kind::INT: {
+                IntSymValue *rint = static_cast<IntSymValue*>(rhs);
+                result = new IntSymValue(lint->get_value()-rint->get_value(), resultType);
+                std::cout<<lint->toString()<<"-"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+            } break;
+            default:
+                std::cout<<"Unable to calculate INT minus "<<toString(rhs->get_kind())<<std::endl;
+                result = new UnknownSymValue(resultType);
+                break;
+            }
+        } break;
+        default:
+            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" minus "<<toString(rhs->get_kind())<<std::endl;
+            result = new UnknownSymValue(resultType);
+            break;
+        }
+
+        storagePool.persist(result);
+        node->AllocateResult(subInst, result);
+        return std::nullopt;
+    } catch (OffsetOutOfBoundsException e) {
+        return std::unordered_set<FlowNode*>();
+    }
+    
 }
 
 std::unordered_set<FlowNode*> SymbolicEvaluation::TCall(
@@ -1189,7 +1521,7 @@ void SymbolicEvaluation::AllocateValue(
             if(label == nullptr) {
                 std::cout<<"WARNING: Attempted to create address symvalue to unknown label"<<std::endl;
             } else {
-                result = storagePool.persist(new AddrSymValue(
+                result = storagePool.persist(new StaticPtrSymValue(
                     g->GetName(),
                     llvm::APInt(bitLength(type),label->offset, isSigned(type)),
                     label->atom->getSize(),
@@ -1259,5 +1591,6 @@ void SymbolicEvaluation::AllocateValue(
     }
     }
 
+    std::cout<<"Allocating "<<toString(inst)<<" := "<<toString(result)<<std::endl;
     node->AllocateResult(inst, result);
 }

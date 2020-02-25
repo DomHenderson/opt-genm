@@ -1,6 +1,7 @@
 #include <exception>
 #include <iostream>
 #include <limits>
+#include <string_view>
 
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/StringRef.h>
@@ -10,148 +11,29 @@
 #include "core/prog.h"
 #include "core/type.h"
 #include "datastore.h"
+#include "mappedatom.h"
 #include "storagepool.h"
 #include "symvalue.h"
 #include "symvaluecomp.h"
 #include "utilities.h"
 
-void MappedAtom::addSpace(unsigned space)
-{
-    std::cout<<"Adding space from "<<size<<" to "<<size+space<<std::endl;
-    size += space;
-}
-
-void MappedAtom::addSymValue(SymValue &value)
-{
-    unsigned length = byteLength(value.get_type());
-    auto [a,b] = items.emplace(size, &value);
-    if(b) {
-        std::cout<<toString(*a->second)<<" added successfully"<<std::endl;
-    } else {
-        std::cout<<"Failed to add"<<std::endl;
-    }
-    std::cout<<"There are now "<<items.size()<<" items"<<std::endl;
-    size += length;
-}
-
-SymValue *MappedAtom::get(unsigned offset, size_t loadSize, Type type)
-{
-    if(offset >= size) {
-        std::cout<<"WARNING: Attempted to read at offset >= size"<<std::endl;
-        return nullptr;
-    }
-
-    if(byteLength(type) < loadSize) {
-        std::cout<<"WARNING: Attempting to read more data than can fit into type"<<std::endl;
-    }
-
-    auto [start, end] = FindSection(offset);
-    auto iter = items.find(start);
-    unsigned dataEnd;
-    if(iter == items.end()) {
-        std::cout<<"Data item contains only empty space"<<std::endl;
-        dataEnd = start;
-    } else {
-        dataEnd = start + byteLength(iter->second->get_type());
-    }
-    if(offset < dataEnd) {
-        if(offset == start) {
-            std::cout<<"Reading from start of data item"<<std::endl;
-            SymValue *value = iter->second;
-            if(loadSize == byteLength(value->get_type())) {
-                return value->copy_cast(type);
-            } else {
-                std::cout<<"WARNING: Reading only part of the item"<<std::endl;
-                return new UnknownSymValue(type);
-            }
-        } else {
-            std::cout<<"WARNING: Attempting to read from part way into an item"<<std::endl;
-            return new UnknownSymValue(type);
-        }
-    } else {
-        if(offset + loadSize <= end) {
-            std::cout<<"Reading from empty space"<<std::endl;
-            if(isIntType(type)) {
-                return pool.persist(
-                    new IntSymValue(0, type)
-                );
-            } else {
-                std::cout<<"Attempting to read float from empty space"<<std::endl;
-                return pool.persist(
-                    new UnknownSymValue(type)
-                );
-            }
-        } else {
-            std::cout<<"WARNING: Reading past end of item"<<std::endl;
-            return new UnknownSymValue(type);
-        }
-    }
-}
-
-SymValue *MappedAtom::get(llvm::APInt offset, size_t loadSize, Type type)
-{
-    auto o = offset.getLimitedValue();
-    if(o > std::numeric_limits<unsigned>::max()) {
-        std::cout<<"WARNING: attempting to read at very large offset"<<std::endl;
-    }
-    unsigned i = static_cast<unsigned>(o);
-    return get(i, loadSize, type);
-}
-
-std::pair<unsigned, unsigned> MappedAtom::FindSection(unsigned offset) const
-{
-    std::cout<<"Finding section"<<std::endl;
-    assert(offset < size);
-    unsigned start = 0;
-    unsigned end = 0;
-
-    std::cout<<"This atom contains "<<items.size()<<" items"<<std::endl;
-
-    for(auto &[k,v]: items) {
-        std::cout<<"Checking k = "<<k<<" ("<<toString(*v)<<")"<<std::endl;
-        if(k <= offset) {
-            start = k;
-        } else {
-            end = k;
-            break;
-        }
-    }
-    if(end == 0) {
-        std::cout<<"End was never set"<<std::endl;
-        end = size;
-    }
-
-    std::cout<<"Found offset "<<offset<<" is in section ["<<start<<", "<<end<<")"<<std::endl;
-    return std::pair{start, end};
-}
-
-unsigned MappedAtom::getSize() const
-{
-    return size;
-}
-
 //-----------------------------------------------------------------------------
-
-
+// BaseStore
+//-----------------------------------------------------------------------------
 
 BaseStore::BaseStore(
     Prog &prog,
     SymExPool &storagePool
 ): 
-    storagePool(storagePool)
+    DataStore(storagePool)
 {
-    std::unordered_map<AddrSymValue*, std::string_view> storedAddresses;
+    std::unordered_map<StaticPtrSymValue*, std::string_view> storedAddresses;
 
     unsigned atomIdx = 0;
     atoms.push_back(std::make_unique<MappedAtom>(storagePool));
     for(auto &data: prog.data()) {
         std::cout<<"Starting data segment "<<data.GetName()<<" ("<<(data.GetName()=="const"?"readOnly":"read/write")<<")"<<std::endl;
-        dataSegments.push_back(
-            DataSegmentInfo{
-                data.GetName(),
-                data.GetName() == "const"
-            }
-        );
+        unsigned segmentStartIdx = atomIdx;
 
         unsigned offset = 0;
         for(auto &atom: data) {
@@ -263,7 +145,7 @@ BaseStore::BaseStore(
                         //We cannot guarantee that the referrenced atom has been
                         //reached yet, so give an invalid one now and update it later
                         auto v = storagePool.persist(
-                            new AddrSymValue(std::string_view("INVALID"), llvm::APInt(), 0, Type::U64)
+                            new StaticPtrSymValue(std::string_view("INVALID"), llvm::APInt(), 0, Type::U64)
                         );
                         atoms[atomIdx]->addSymValue(*v);
                         storedAddresses[v] = g->GetName();
@@ -299,12 +181,21 @@ BaseStore::BaseStore(
                 }
             }
         }
+
+        dataSegments.push_back(
+            DataSegmentInfo{
+                data.GetName(),
+                data.GetName() == "const",
+                segmentStartIdx,
+                atomIdx+1
+            }
+        );
     }
 
     for(auto &[v, name]: storedAddresses) {
         Label &label = labels.at(name);
         std::cout<<"Updating "<<v->get_name()<<std::endl;
-        new (v) AddrSymValue(
+        new (v) StaticPtrSymValue(
             name,
             label.offset,
             label.atom->getSize(),
@@ -315,12 +206,12 @@ BaseStore::BaseStore(
     std::cout<<"Finished updating"<<std::endl;
 }
 
-SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, bool, unsigned debugCount)
+SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, Inst *inst, bool, unsigned debugCount)
 {
     std::cout<<debugCount<<" delegations"<<std::endl;
 
-    if(loc->get_kind() == SymValue::Kind::ADDR) {
-        AddrSymValue *addr = static_cast<AddrSymValue*>(loc);
+    if(loc->get_kind() == SymValue::Kind::STATICPTR) {
+        StaticPtrSymValue *addr = static_cast<StaticPtrSymValue*>(loc);
 
         auto label = labels.find(addr->get_name());
         if(label==labels.end()) {
@@ -347,15 +238,40 @@ SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, bool, unsig
     }
 }
 
+std::vector<SymValue*> BaseStore::readSequence(SymValue *addr, unsigned size)
+{
+    std::vector<SymValue*> result;
+    if(addr->get_kind() == SymValue::Kind::STATICPTR) {
+        auto address = static_cast<StaticPtrSymValue*>(addr);
+        auto label = labels.find(address->get_name());
+        if(label == labels.end()) {
+            std::cout<<"WARNING: Label not found"<<std::endl;
+            return result;
+        } else {
+            MappedAtom *atom = label->second.atom;
+            std::cout<<"Reading from label "
+                <<label->first
+                <<" at atom offset of "<<address->get_offset().getLimitedValue()
+                <<std::endl;
+            
+
+        }
+    }
+    return result; //TODO finish this
+}
+
 void BaseStore::write(
     SymValue *addr,
-    SymValue *value
+    SymValue *value,
+    Inst *inst
 ) {
     std::cout<<"base write not implemented"<<std::endl;
 }
 
-void BaseStore::invalidate()
-{
+void BaseStore::invalidate(
+    MappedAtom &startPoint,
+    Inst *Inst
+) {
     std::cout<<"base invalidate not implemented"<<std::endl;
 }
 
@@ -369,16 +285,21 @@ const Label *BaseStore::getLabel(std::string_view name) const
 }
 
 //-----------------------------------------------------------------------------
+// LogStore
+//-----------------------------------------------------------------------------
 
 LogStore::LogStore(
-    DataStore &store
+    DataStore &store,
+    SymExPool &pool
 ):
-    baseStore(store)
+    DataStore(pool),
+    baseStore(store),
+    nextHeapName(baseStore.getNextHeapName())
 {
     std::cout<<"Correct constructor"<<std::endl;
 }
 
-SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record, unsigned debugCount)
+SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, Inst *inst, bool record, unsigned debugCount)
 {
     SymValue *value = nullptr;
 
@@ -397,7 +318,7 @@ SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record,
         } else { // action is a write
             auto write = static_cast<Write*>(actions[i].get());
             if(SymComp::EQ(loc,write->get_addr()) == SymComp::Result::UNKNOWN) {
-                std::cout<<"Found potential match"<<std::endl;
+                std::cout<<"Found potential match: "<<toString(loc)<<" ?= "<<toString(write->get_addr())<<std::endl;
                 value = new UnknownSymValue(type);
                 break;
             } else if(SymComp::EQ(loc,write->get_addr()) == SymComp::Result::TRUE) {
@@ -409,31 +330,124 @@ SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, bool record,
         }
     }
     if(value == nullptr) {
-        value = baseStore.read(loc, loadSize, type, false, debugCount+1);
+        value = baseStore.read(loc, loadSize, type, inst, false, debugCount+1);
     }
     if(record) {
         std::cout<<"Recording read"<<std::endl;
-        actions.push_back(std::make_unique<Read>(loc, value));
+        actions.push_back(std::make_unique<Read>(loc, value, inst));
         std::cout<<"Found value is "<<(value == nullptr ? "nullptr":toString(*value))<<std::endl;
     }
     return value;
 }
 
-void LogStore::write(
-    SymValue *addr,
-    SymValue *value
-) {
-    std::cout<<"log write logged"<<std::endl;
-    actions.push_back(std::make_unique<Write>(addr,value));
+std::vector<SymValue*> LogStore::readSequence(SymValue *addr, unsigned size)
+{
+    std::cout<<"WARNING: Logstore readSequence is not implemented yet"<<std::endl;
+    return std::vector<SymValue*>();
 }
 
-void LogStore::invalidate()
-{
+void LogStore::write(
+    SymValue *addr,
+    SymValue *value,
+    Inst *inst
+) {
+    std::cout<<"log write logged: "<<toString(addr)<<" := "<<toString(value)<<std::endl;
+    actions.push_back(std::make_unique<Write>(addr,value, inst)); //TODO
+}
+
+void LogStore::invalidate(
+    MappedAtom &startPoint,
+    Inst *inst
+) {
     std::cout<<"logging invalidate"<<std::endl;
-    actions.push_back(std::make_unique<Invalidate>());
+    actions.push_back(std::make_unique<Invalidate>(startPoint, inst)); //TODO
 }
 
 const Label *LogStore::getLabel(std::string_view name) const
 {
     return baseStore.getLabel(name);
 }
+
+std::string LogStore::getNextHeapName() const
+{
+    return nextHeapName;
+}
+
+void LogStore::incrementNextHeapName()
+{
+    bool carry;
+    int i = nextHeapName.length()-1;
+    do {
+        if(nextHeapName[i] <= '8') {
+            nextHeapName[i] += 1;
+            carry = false;
+        } else {
+            nextHeapName[i] = '0';
+            carry = true;
+            --i;
+        }
+    } while (carry && i >= 0);
+    if(i < 0 ) {
+        nextHeapName = "1" + nextHeapName;
+    }
+}
+
+std::string_view LogStore::addHeapAtom(unsigned size)
+{
+    std::string name = getNextHeapName();
+    auto [iter, success] = heap.insert({name,std::make_unique<MappedAtom>(storagePool)});
+    assert(success);
+    return std::string_view(iter->first);
+}
+
+std::vector<DataStore::Action*> LogStore::getFullLog() const
+{
+    std::cout<<"Getting log"<<std::endl;
+    auto previousLog = baseStore.getFullLog();
+    std::cout<<"Previous length: "<<previousLog.size()<<std::endl;
+    auto log = std::vector<Action*>();
+    std::transform(
+        actions.begin(),
+        actions.end(),
+        std::back_inserter(log),
+        [](const std::unique_ptr<Action>& ptr) {return ptr.get();}
+    );
+
+    std::cout<<"Transformed"<<std::endl;
+    std::cout<<"Log size "<<log.size()<<std::endl;
+
+    if(previousLog.size() == 0) {
+        std::cout<<"Returning own log"<<std::endl;
+        return log;
+    } else {
+        previousLog.insert(previousLog.end(), log.begin(), log.end());
+        return previousLog;
+    }
+}
+
+// std::vector<MappedAtom*> LogStore::modelPointers(std::string_view name)
+// {
+//     const MappedAtom *atom = getLabel(name)->atom;
+//     const unsigned size = atom->getSize();
+//     std::vector<SymByteRef> bytes(size);
+
+//     fillMissingBytes(bytes, atom);
+
+//     return std::vector<MappedAtom*>();
+// }
+
+// void LogStore::fillMissingBytes(std::vector<SymByteRef> &bytes, const MappedAtom* atom) const
+// {
+//     for(int i = actions.size()-1; i >= 0; --i) {
+//         switch(actions[i]->get_kind()) {
+//         case Action::Kind::READ:
+//         case Action::Kind::WRITE: {
+//             auto action = static_cast<ReadWrite*>(actions[i].get());
+//         } break;
+//         }
+//     }
+// }
+
+
+
+

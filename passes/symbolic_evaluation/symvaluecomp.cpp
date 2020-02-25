@@ -38,9 +38,9 @@ Result SymComp::EQ(SymValue *lv, SymValue *rv)
         return Result::TRUE;
     } else if (lv->get_kind() == rv->get_kind()) {
         switch(lv->get_kind()) {
-        case SymValue::Kind::ADDR: {
-            auto l = static_cast<AddrSymValue*>(lv);
-            auto r = static_cast<AddrSymValue*>(rv);
+        case SymValue::Kind::STATICPTR: {
+            auto l = static_cast<StaticPtrSymValue*>(lv);
+            auto r = static_cast<StaticPtrSymValue*>(rv);
             return FromBool(l->get_name() == r->get_name() && l->get_offset() == r->get_offset());
         }
 
@@ -109,7 +109,7 @@ Result SymComp::LT(SymValue* lv, SymValue *rv)
 
         default:
             std::cout<<"Default case used in LT"<<std::endl;
-        case SymValue::Kind::ADDR:
+        case SymValue::Kind::STATICPTR:
         case SymValue::Kind::BOOL:
         case SymValue::Kind::FUNCREF:
         case SymValue::Kind::UNKNOWN:
@@ -140,7 +140,7 @@ Result SymComp::GT(SymValue *lv, SymValue *rv)
 
         default:
             std::cout<<"Default case used in GT"<<std::endl;
-        case SymValue::Kind::ADDR:
+        case SymValue::Kind::STATICPTR:
         case SymValue::Kind::BOOL:
         case SymValue::Kind::FUNCREF:
         case SymValue::Kind::UNKNOWN:

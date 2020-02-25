@@ -43,6 +43,8 @@ private:
 
     void StepNode(FlowNode *node);
 
+    void Optimise();
+
     std::optional<std::unordered_set<FlowNode*>> Add(AddInst *addInst, FlowNode *node);
     void And(AndInst *andInst, FlowNode *node);
     void Arg(ArgInst *argInst, FlowNode *node);
@@ -62,6 +64,7 @@ private:
     void Set(SetInst* setInst, FlowNode* node);
     void SExt(SExtInst* sExtInst, FlowNode *node);
     void Store(StoreInst *storeInst, FlowNode *node);
+    std::optional<std::unordered_set<FlowNode*>> Sub(SubInst* subInst, FlowNode *node);
     std::unordered_set<FlowNode*> TCall(TailCallInst *tailCallInst, FlowNode *node);
     void Phi(PhiInst *phiInst, FlowNode *node);
     void ZExt(ZExtInst* zExtInst, FlowNode *node);
@@ -77,10 +80,11 @@ private:
     Prog *prog;
 
     std::stack<FlowNode*> frontier;
+    std::vector<FlowNode*> finishedNodes;
 
     bool carryOn = true;
     unsigned int count = 0;
-    unsigned int limit = 10000;
+    unsigned int limit = 100000;
 
     //Anything which needs to exist on the heap for the duration of the pass 
     //gets owned by the storage pool which then frees them all at the end

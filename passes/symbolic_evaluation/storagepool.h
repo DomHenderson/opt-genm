@@ -2,7 +2,7 @@
 
 #include <memory>
 #include <type_traits>
-#include <unordered_set>
+#include <unordered_map>
 #include <utility>
 
 #include "flownode.h"
@@ -24,6 +24,15 @@ public:
         }
         return value;
     }
+
+    void remove(T* ptr) {
+        auto iter = pool.find(ptr);
+        if(iter == pool.end()) {
+            std::cout<<"WARNING: attempting to delete pointer which wasn't persisted";
+        } else {
+            pool.erase(iter);
+        }
+    }
 private:
     std::unordered_map<T*,std::unique_ptr<T>> pool;
 };
@@ -41,6 +50,15 @@ public:
     template <typename F>
     DerivedPtr<Frame,F> persist(F *frame) {
         return framePool.persist(frame);
+    }
+    void remove(SymValue* ptr) {
+        valuePool.remove(ptr);
+    }
+    void remove(FlowNode* ptr) {
+        nodePool.remove(ptr);
+    }
+    void remove(Frame* ptr) {
+        framePool.remove(ptr);
     }
 private:
     StoragePool<SymValue> valuePool;

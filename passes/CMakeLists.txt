@@ -4,7 +4,9 @@
 
 add_library(passes
     symbolic_evaluation/datastore.cpp
+    symbolic_evaluation/externstubs.cpp
     symbolic_evaluation/flownode.cpp
+    symbolic_evaluation/mappedatom.cpp
     symbolic_evaluation/symvaluecomp.cpp
     symbolic_evaluation/symvalue.cpp
     symbolic_evaluation/utilities.cpp

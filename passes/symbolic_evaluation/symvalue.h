@@ -15,13 +15,14 @@ public:
     SymValue(Type type): type(type) {}
 
     enum class Kind {
-        ADDR,
         BOOL,
         BLOCKREF,
         EXTERN,
         FLOAT,
         FUNCREF,
+        HEAPPTR,
         INT,
+        STATICPTR,
         UNKNOWN
     };
 
@@ -34,20 +35,33 @@ private:
 
 class OffsetOutOfBoundsException: public std::exception {};
 
-class AddrSymValue: public SymValue {
+class StaticPtrSymValue: public SymValue {
 public:
-    AddrSymValue(std::string_view atomName, unsigned offset, unsigned max, Type type);
-    AddrSymValue(std::string_view atomName, llvm::APInt offset, unsigned max, Type type);
-    Kind get_kind() const override { return Kind::ADDR; }
+    StaticPtrSymValue(std::string_view atomName, unsigned offset, unsigned max, Type type);
+    StaticPtrSymValue(std::string_view atomName, llvm::APInt offset, unsigned max, Type type);
+    Kind get_kind() const override { return Kind::STATICPTR; }
     std::string_view get_name() { return name; }
     llvm::APInt get_offset() { return offset; }
     unsigned get_max() { return max; }
-    virtual AddrSymValue *copy_cast(Type type) const override { return new AddrSymValue(name, offset, max, type); }
+    virtual StaticPtrSymValue *copy_cast(Type type) const override { return new StaticPtrSymValue(name, offset, max, type); }
     std::string toString() const;
 private:
     std::string_view name;
     llvm::APInt offset;
     unsigned max;
+};
+
+class HeapPtrSymValue: public SymValue {
+public:
+    HeapPtrSymValue(std::string_view atomName, int offset, Type type);
+    HeapPtrSymValue(std::string_view atomName, llvm::APInt offset, Type type);
+    Kind get_kind() const override { return Kind::HEAPPTR; }
+    std::string_view get_name() { return name; }
+    llvm::APInt get_offset() { return offset; }
+    virtual HeapPtrSymValue *copy_cast(Type type) const override { return new HeapPtrSymValue(name, offset, type); }
+private:
+    std::string_view name;
+    llvm::APInt offset;
 };
 
 class BlockRefSymValue: public SymValue {

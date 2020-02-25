@@ -219,7 +219,11 @@ std::string toString(Inst &inst)
             stream<<"Inst"<<(void*)i<<toString(i->GetKind())<<" ";
             break;
         }
-    }      
+    }
+
+    stream<<(inst.IsVoid()
+        ?"(Void)"
+        :("("+toString(inst.GetType(0))+")"));
 
     return stream.str(); 
 }
@@ -234,7 +238,7 @@ std::string toString(Inst *inst)
 std::string toString(SymValue::Kind k)
 {
     switch(k) {
-    case SymValue::Kind::ADDR: return "ADDR";
+    case SymValue::Kind::STATICPTR: return "STATICPTR";
     case SymValue::Kind::BOOL: return "BOOl";
     case SymValue::Kind::EXTERN: return "EXTERN";
     case SymValue::Kind::FLOAT: return "FLOAT";
@@ -250,8 +254,8 @@ std::string toString(SymValue &value)
     std::ostringstream stream;
 
     switch(value.get_kind()) {
-    case SymValue::Kind::ADDR: {
-        auto addr = static_cast<AddrSymValue&>(value);
+    case SymValue::Kind::STATICPTR: {
+        auto addr = static_cast<StaticPtrSymValue&>(value);
         stream<<"addr "<<addr.toString();
     } break;
     case SymValue::Kind::BLOCKREF: {
@@ -390,11 +394,9 @@ std::optional<Type> unsignedOfLength(unsigned length)
 bool knownSafeExtern(std::string_view name)
 {
     std::cout<<"checking if "<<name<<" is safe"<<std::endl;
-    if(name == "strlen") {
-        return true;
-    } else {
-        return false;
-    }
+    return name == "getenv"
+        || name == "secure_getenv"
+        || name == "strlen";
 }
 
 std::pair<SymValue*,SymValue*> getOperandValues(

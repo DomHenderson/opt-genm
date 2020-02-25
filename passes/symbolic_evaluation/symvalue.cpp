@@ -11,7 +11,7 @@
 #include "symvalue.h"
 #include "utilities.h"
 
-AddrSymValue::AddrSymValue(std::string_view atomName, unsigned offsetValue, unsigned max, Type type):
+StaticPtrSymValue::StaticPtrSymValue(std::string_view atomName, unsigned offsetValue, unsigned max, Type type):
     SymValue(type),
     name(atomName),
     offset(bitLength(type), offsetValue, false),
@@ -23,7 +23,7 @@ AddrSymValue::AddrSymValue(std::string_view atomName, unsigned offsetValue, unsi
     }
 }
 
-AddrSymValue::AddrSymValue(std::string_view atomName, llvm::APInt offset, unsigned max, Type type):
+StaticPtrSymValue::StaticPtrSymValue(std::string_view atomName, llvm::APInt offset, unsigned max, Type type):
     SymValue(type),
     name(atomName),
     offset(offset),
@@ -36,7 +36,7 @@ AddrSymValue::AddrSymValue(std::string_view atomName, llvm::APInt offset, unsign
     }
 }
 
-std::string AddrSymValue::toString() const
+std::string StaticPtrSymValue::toString() const
 {
     std::ostringstream stream;
     stream << name
@@ -95,4 +95,29 @@ IntSymValue *IntSymValue::copy_cast(Type type) const
 std::string IntSymValue::toString() const
 {
     return val.toString(10, isSigned(get_type()))+"("+::toString(get_type())+")";
+}
+
+HeapPtrSymValue::HeapPtrSymValue(
+    std::string_view atomName,
+    int offset,
+    Type type
+) :
+    HeapPtrSymValue(
+        atomName,
+        llvm::APInt(bitLength(type), offset, true),
+        type
+    )
+{}
+
+HeapPtrSymValue::HeapPtrSymValue(
+    std::string_view atomName,
+    llvm::APInt offset,
+    Type type
+):
+    SymValue(type),
+    name(atomName),
+    offset(offset)
+{
+    assert(isIntType(type));
+    offset = offset.sextOrTrunc(bitLength(type));
 }

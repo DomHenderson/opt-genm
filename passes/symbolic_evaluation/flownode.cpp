@@ -14,9 +14,11 @@ using Block_iterator = FlowNode::Block_iterator;
 using Func_iterator = FlowNode::Func_iterator;
 
 Frame &CreateBaseFrame(Func &func, SymExPool &pool);
-std::unique_ptr<LogStore> CreateLogStore(FlowNode &previous);
+std::unique_ptr<LogStore> CreateLogStore(FlowNode &previous, SymExPool &pool);
 Inst_iterator NextInst(Inst_iterator i);
 
+//-----------------------------------------------------------------------------
+// FlowNode
 //-----------------------------------------------------------------------------
 
 FlowNode::FlowNode(
@@ -77,6 +79,14 @@ void FlowNode::AllocateResult(
     Inst *inst,
     SymValue *value
 ) {
+    if(inst->IsVoid()) {
+        std::cout<<"WARNING: Assigning result to void instruction"<<std::endl;
+    } else if(inst->GetType(0) != value->get_type()) {
+        std::cout<<"Copy casting from "<<toString(value->get_type())<<" to "<<toString(inst->GetType(0))<<std::endl;
+        value = pool.persist(
+            value->copy_cast(inst->GetType(0))
+        );
+    }
     vreg_allocs[inst] = values.size();
     values.push_back(value);
 }
@@ -104,6 +114,8 @@ void FlowNode::SetRegister(
 }
 
 //-----------------------------------------------------------------------------
+// SuccessorFlowNode
+//-----------------------------------------------------------------------------
 
 SuccessorFlowNode::SuccessorFlowNode(
     Inst_iterator startingInst,
@@ -114,7 +126,7 @@ SuccessorFlowNode::SuccessorFlowNode(
     FlowNode(frame, pool),
     startingInst(startingInst),
     previousNode(previous),
-    dataStore(CreateLogStore(previous))
+    dataStore(CreateLogStore(previous, pool))
 {
 }
 
@@ -173,6 +185,11 @@ LogStore &SuccessorFlowNode::get_store()
     return *dataStore;
 }
 
+std::string_view SuccessorFlowNode::AllocateHeapBlock(unsigned size)
+{
+    return dataStore->addHeapAtom(size);
+}
+
 Inst_iterator SuccessorFlowNode::get_starting_inst()
 {
     return startingInst;
@@ -205,6 +222,8 @@ std::string SuccessorFlowNode::get_name()
 }
 
 //-----------------------------------------------------------------------------
+// RootFlowNode
+//-----------------------------------------------------------------------------
 
 RootFlowNode::RootFlowNode(
     Func &func,
@@ -214,7 +233,7 @@ RootFlowNode::RootFlowNode(
     FlowNode(CreateBaseFrame(func, pool), pool),
     func(func),
     baseStore(prog, pool),
-    dataStore(baseStore)
+    dataStore(baseStore, pool)
 {
 }
 
@@ -267,6 +286,11 @@ LogStore &RootFlowNode::get_store()
     return dataStore;
 }
 
+std::string_view RootFlowNode::AllocateHeapBlock(unsigned size)
+{
+    return dataStore.addHeapAtom(size);
+}
+
 Inst_iterator RootFlowNode::get_starting_inst()
 {
     return func.begin()->begin();
@@ -315,10 +339,10 @@ Frame &CreateBaseFrame(
     ));
 }
 
-std::unique_ptr<LogStore> CreateLogStore(FlowNode &previous)
+std::unique_ptr<LogStore> CreateLogStore(FlowNode &previous, SymExPool &pool)
 {
     DataStore &store = previous.get_store();
-    LogStore *newStore = new LogStore(store);
+    LogStore *newStore = new LogStore(store, pool);
     return std::unique_ptr<LogStore>(newStore);
 }
 

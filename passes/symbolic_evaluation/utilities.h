@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,7 @@ bool isIntType(Type type);
 bool isSigned(Type type);
 unsigned bitLength(Type type);
 unsigned byteLength(Type type);
+unsigned byteLength(Item &item);
 std::optional<Type> unsignedOfLength(unsigned length);
 
 std::pair<SymValue*,SymValue*> getOperandValues(BinaryInst *inst, FlowNode *node);

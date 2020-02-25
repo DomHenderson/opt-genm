@@ -43,7 +43,9 @@ public:
     virtual void AllocateResult(Inst *inst, SymValue *value);
     virtual SymValue *GetResult(Inst *inst) = 0;
 
-    virtual DataStore &get_store() = 0;
+    virtual LogStore &get_store() = 0;
+
+    virtual std::string_view AllocateHeapBlock(unsigned size) = 0;
 
     virtual Inst_iterator get_starting_inst() = 0;
     virtual Block_iterator get_block() = 0;
@@ -77,6 +79,8 @@ public:
 
     virtual LogStore &get_store() override;
 
+    virtual std::string_view AllocateHeapBlock(unsigned size) override;
+
     virtual Inst_iterator get_starting_inst() override;
     virtual Block_iterator get_block() override;
     virtual Func_iterator get_func() override;
@@ -102,6 +106,8 @@ public:
     virtual SymValue *GetResult(Inst *inst) override;
 
     virtual LogStore &get_store() override;
+
+    virtual std::string_view AllocateHeapBlock(unsigned size) override;
 
     virtual Inst_iterator get_starting_inst() override;
     virtual Block_iterator get_block() override;
