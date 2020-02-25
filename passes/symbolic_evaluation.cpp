@@ -12,6 +12,8 @@
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/APInt.h>
 
+#include "z3++.h"
+
 #include "core/atom.h"
 #include "core/block.h"
 #include "core/constant.h"
@@ -36,6 +38,8 @@
 
 constexpr std::string_view start_function = "main";
 
+void Z3Test();
+
 //-----------------------------------------------------------------------------
 
 const char *SymbolicEvaluation::kPassID = "symbolic_evaluation";
@@ -49,6 +53,8 @@ const char *SymbolicEvaluation::GetPassName() const
 
 void SymbolicEvaluation::Run(Prog *program)
 {
+    Z3Test();
+
     PrintCodeInfo(program);
 
     // ---------------------------------------------------------------
@@ -1593,4 +1599,36 @@ void SymbolicEvaluation::AllocateValue(
 
     std::cout<<"Allocating "<<toString(inst)<<" := "<<toString(result)<<std::endl;
     node->AllocateResult(inst, result);
+}
+
+void Z3Test()
+{
+    std::cout<<std::endl;
+    std::cout<<"----------------------------------------"<<std::endl;
+    std::cout<<"Z3 TEST START"<<std::endl;
+    std::cout<<"----------------------------------------"<<std::endl;
+    std::cout<<std::endl;
+
+    z3::context c;
+
+    z3::expr x = c.bool_const("x");
+    z3::expr y = c.bool_const("y");
+
+    z3::expr conjecture = (!(x && y)) == (!x || !y);
+    z3::solver s(c);
+
+    s.add(!conjecture);
+    std::cout<<s<<std::endl;
+    std::cout<<s.to_smt2()<<std::endl;
+    switch(s.check()) {
+    case z3::unsat: std::cout<<"De-Morgan is valid. Z3 is working"<<std::endl; break;
+    case z3::sat: std::cout<<"De-Morgan is not valid. Z3 is not working"<<std::endl; break;
+    case z3::unknown: std::cout<<"Validity of De-Morgan is unknown. Z3 is not working"<<std::endl; break;
+    }
+
+    std::cout<<std::endl;
+    std::cout<<"----------------------------------------"<<std::endl;
+    std::cout<<"Z3 TEST END"<<std::endl;
+    std::cout<<"----------------------------------------"<<std::endl;
+    std::cout<<std::endl;
 }

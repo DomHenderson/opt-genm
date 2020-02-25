@@ -22,6 +22,18 @@ add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS all)
 
 ################################################################################
+# Set up Z3
+################################################################################
+find_package(Z3
+  REQUIRED
+  CONFIG
+)
+
+message(STATUS "Z3_FOUND: ${Z3_FOUND}")
+message(STATUS "Found Z3 ${Z3_VERSION_STRING}")
+message(STATUS "Z3_DIR: ${Z3_DIR}")
+
+################################################################################
 # Set up C++ options.
 ################################################################################
 add_compile_options(${LLVM_CXXFLAGS} -std=c++17 -fno-rtti -Wextra)
@@ -70,6 +82,7 @@ target_link_libraries(genm
     core
     analysis
     ${LLVM_LIBS}
+    ${Z3_LIBRARIES}
 )
 install(
     TARGETS genm
