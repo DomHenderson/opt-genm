@@ -28,6 +28,8 @@ std::string toString(SymValue &value);
 std::string toString(SymValue *value);
 std::string toString(Type type);
 
+std::string ptrToString(void *ptr);
+
 bool isIntType(Type type);
 bool isSigned(Type type);
 unsigned bitLength(Type type);

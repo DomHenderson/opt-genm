@@ -15,7 +15,7 @@ namespace SymComp {
     Result EQ(SymValue *lv, SymValue *rv);
     Result NEQ(SymValue *lv, SymValue *rv);
     Result LT(SymValue* lv, SymValue *rv);
-    Result GT(SymValue *lv, SymValue *rv);
-    Result LE(SymValue *lv, SymValue *rv);
+    std::pair<Result, z3::expr> GT(SymValue *lv, SymValue *rv, FlowNode *node = nullptr);
+    std::pair<Result, z3::expr> LE(SymValue *lv, SymValue *rv, FlowNode *node = nullptr);
     Result GE(SymValue *lv, SymValue *rv);
 }

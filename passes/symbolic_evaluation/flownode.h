@@ -1,10 +1,13 @@
 #pragma once
 
 #include <iostream>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
 #include <llvm/ADT/ilist.h>
+
+#include "z3++.h"
 
 #include "core/block.h"
 #include "core/constant.h"
@@ -23,10 +26,13 @@ public:
     using Block_iterator = llvm::ilist<Block>::iterator;
     using Func_iterator = llvm::ilist<Func>::iterator;
 
-    FlowNode(Frame &frame, SymExPool &pool);
+    FlowNode(Frame &frame, SymExPool &pool, z3::context &context);
     virtual ~FlowNode() {}
 
-    virtual SuccessorFlowNode *CreateBlockNode(Block &block);
+    virtual SuccessorFlowNode *CreateBlockNode(
+        Block &block,
+        std::optional<z3::expr> constraint = std::nullopt
+    );
     virtual SuccessorFlowNode *CreateFunctionNode(
         Func &func,
         std::vector<SymValue*> args,
@@ -53,22 +59,29 @@ public:
 
     virtual Frame &get_frame();
 
+    virtual z3::context &get_context();
+
     virtual std::string get_name() = 0;
 
     virtual SymValue *GetRegister(ConstantReg::Kind reg);
     virtual void SetRegister(ConstantReg::Kind reg, SymValue* value);
 
+    virtual void AddConstraint(z3::expr constraint);
+    virtual void AssertConstraints(z3::solver &solver) =0;
+    virtual void AssertNegativeConstraints(z3::solver &solver) =0;
 protected:
     std::unordered_map<Inst*,unsigned> vreg_allocs;
     std::vector<SymValue*> values;
     std::unordered_map<ConstantReg::Kind,SymValue*> registers; 
+    std::vector<z3::expr> constraints;
     Frame &currentFrame;
     SymExPool &pool;
+    z3::context &context;
 };
 
 class SuccessorFlowNode : public FlowNode {
 public:
-    SuccessorFlowNode(Inst_iterator startingInst, Frame &frame, FlowNode &previous, SymExPool &pool);
+    SuccessorFlowNode(Inst_iterator startingInst, Frame &frame, FlowNode &previous, SymExPool &pool, z3::context &context);
     ~SuccessorFlowNode() = default;
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
@@ -86,6 +99,9 @@ public:
     virtual Func_iterator get_func() override;
 
     virtual std::string get_name() override;
+
+    virtual void AssertConstraints(z3::solver &solver) override;
+    virtual void AssertNegativeConstraints(z3::solver &solver) override;
 private:
     Inst_iterator startingInst;
 
@@ -96,7 +112,7 @@ private:
 
 class RootFlowNode : public FlowNode {
 public:
-    RootFlowNode(Func &func, Prog &prog, SymExPool &pool);
+    RootFlowNode(Func &func, Prog &prog, SymExPool &pool, z3::context &context);
     ~RootFlowNode() = default;
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
@@ -114,6 +130,9 @@ public:
     virtual Func_iterator get_func() override;
 
     virtual std::string get_name() override;
+
+    virtual void AssertConstraints(z3::solver &solver) override;
+    virtual void AssertNegativeConstraints(z3::solver &solver) override;
 private:
     Func &func;
     

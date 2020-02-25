@@ -121,3 +121,16 @@ HeapPtrSymValue::HeapPtrSymValue(
     assert(isIntType(type));
     offset = offset.sextOrTrunc(bitLength(type));
 }
+
+unsigned long UnknownSymValue::previousIndex = 0;
+
+UnknownSymValue::UnknownSymValue(
+    Type type
+) :
+    SymValue(type)
+{
+    ++previousIndex;
+    assert(previousIndex != 0);
+    name = "x" + std::to_string(previousIndex);
+    std::cout<<"Created unknown sym value "<<name<<std::endl;
+}

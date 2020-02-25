@@ -131,7 +131,12 @@ private:
 
 class UnknownSymValue: public SymValue {
 public:
-    UnknownSymValue(Type type): SymValue(type) {}
+    UnknownSymValue(Type type);
+    UnknownSymValue(std::string name, Type type): SymValue(type), name(name) {}
     Kind get_kind() const override { return Kind::UNKNOWN; }
     virtual UnknownSymValue *copy_cast(Type type) const override { return new UnknownSymValue(type); }
+    std::string get_name() const { return name; }
+private:
+    std::string name;
+    static unsigned long previousIndex;
 };

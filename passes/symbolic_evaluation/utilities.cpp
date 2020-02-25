@@ -295,7 +295,8 @@ std::string toString(SymValue &value)
         stream<<"int "<<i.toString();
     } break;
     case SymValue::Kind::UNKNOWN: {
-        stream<<"symbolic value";
+        auto unknownValue = static_cast<UnknownSymValue&>(value);
+        stream<<"symbolic value "<<unknownValue.get_name();
     }
     }
 
@@ -328,6 +329,13 @@ std::string toString(Type type)
     case Type::U8: return "U8";
     default: return "Unknown type";
     }
+}
+
+std::string ptrToString(void *ptr)
+{
+    std::stringstream stream;
+    stream << ptr;
+    return stream.str();
 }
 
 bool isIntType(Type type)

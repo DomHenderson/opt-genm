@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "z3++.h"
+
 #include "core/insts.h"
 #include "core/insts_binary.h"
 #include "core/insts_call.h"
@@ -75,7 +77,7 @@ private:
     RootFlowNode *CreateRootNode();
     SuccessorFlowNode *CreateTailCallFlowNode(Func_iterator func, std::vector<SymValue*> args, FlowNode *previous);
     SuccessorFlowNode *CreateReturnFlowNode(FlowNode *previous);
-    SuccessorFlowNode *CreateBlockFlowNode(Block_iterator block, FlowNode *previous);
+    SuccessorFlowNode *CreateBlockFlowNode(Block_iterator block, FlowNode *previous, std::optional<z3::expr> constraint = std::nullopt);
     SuccessorFlowNode *CreateFunctionFlowNode(Func_iterator func, std::vector<SymValue*> args, Inst_iterator caller, FlowNode *previous);
 
     Prog *prog;
@@ -85,9 +87,11 @@ private:
 
     bool carryOn = true;
     unsigned int count = 0;
-    unsigned int limit = 100000;
+    unsigned int limit = 1000000;
 
     //Anything which needs to exist on the heap for the duration of the pass 
     //gets owned by the storage pool which then frees them all at the end
     SymExPool storagePool;
+
+    z3::context context;
 };

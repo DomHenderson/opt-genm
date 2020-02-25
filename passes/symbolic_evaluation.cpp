@@ -233,284 +233,6 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
 
 //-----------------------------------------------------------------------------
 
-// auto AnalyseLogs(const std::vector<FlowNode*>& finishedNodes)
-// {
-//     //A mapping from read instructions to all the values they read
-//     //If all these values are equal and evaluable at compile time, the instruction can be replaced with a move
-//     std::unordered_map<Inst*, std::vector<SymValue*>> readResults;
-//     std::unordered_map<FlowNode*, std::unordered_map<DataStore::Write*, std::pair<SymValue*,SymValue*>>> precalculableWrites;
-
-//     for(auto& node: finishedNodes) {
-//         auto log = node->get_store().getFullLog();
-//         std::cout<<"Log has length "<<log.size()<<std::endl;
-
-
-//         //Logged writes which come before any read to the given location
-//         std::unordered_map<DataStore::Write*,std::pair<SymValue*,SymValue*>> writesBeforeRead;
-
-//         for(auto it = log.begin(); it < log.end(); ++it) {
-//             DataStore::Action *action = *it;
-//             switch(action->get_kind()) {
-//             case DataStore::Action::Kind::READ: {
-//                 auto *read = static_cast<DataStore::Read*>(action);
-//                 Inst *inst = read->get_inst();
-//                 if(readResults.find(inst) == readResults.end()) {
-//                     readResults[inst] = std::vector<SymValue*>();
-//                 }
-//                 readResults[inst].push_back(read->get_value());
-//             } break;
-
-//             case DataStore::Action::Kind::WRITE: {
-//                 auto write = static_cast<DataStore::Write*>(action);
-//                 SymValue *write_addr = write->get_addr();
-//                 bool writeBeforeRead = std::all_of(
-//                     log.begin(),
-//                     it,
-//                     [write_addr](auto action) {
-//                         if(action->get_kind() == DataStore::Action::Kind::READ) {
-//                             auto read = static_cast<DataStore::Read*>(action);
-//                             SymValue *read_addr = read->get_addr();
-//                             return SymComp::EQ(read_addr, write_addr) == SymComp::Result::FALSE;
-//                         } else if (action->get_kind() == DataStore::Action::Kind::INVALIDATE) {
-//                             return false;
-//                         } else {
-//                             return true;
-//                         }
-//                     }
-//                 );
-
-//                 if(writeBeforeRead) {
-//                     writesBeforeRead[write] = {write_addr, write->get_value()};
-//                 }
-//             }
-//             }
-//         }
-
-//         precalculableWrites[node] = writesBeforeRead;
-//     }
-
-//     auto pair = std::make_pair(readResults, precalculableWrites);
-
-//     return pair;
-// }
-
-// auto CalculateReadReplacements(const std::unordered_map<Inst*, std::vector<SymValue*>>& readResults)
-// {
-//     std::unordered_map<Inst*, SymValue*> readReplacements;
-
-//     //Iterate over logged reads and put those which always take the same value in readReplacements
-//     for(auto& [inst, values]: readResults) {
-//         std::cout<<toString(inst)<<" takes the values "<<std::endl;
-//         for(auto& i: values) {
-//             std::cout<<"    "<<toString(i)<<std::endl;
-//         }
-//         auto notEqual = std::adjacent_find(values.begin(), values.end(), [](auto left, auto right) {
-//             return SymComp::EQ(left, right) != SymComp::Result::TRUE;
-//         });
-//         if(notEqual == values.end()) {
-//             std::cout<<"Values for "<<toString(inst)<<" are equal"<<std::endl;
-//             readReplacements[inst] = values[0];
-//         } else {
-//             std::cout<<"Values for "<<toString(inst)<<" differ"<<std::endl;
-//         }
-//     }
-//     return readReplacements;
-// }
-
-// void EnactReadReplacements(const std::unordered_map<Inst*, SymValue*>& readReplacements)
-// {
-//     for(auto& [inst, value]: readReplacements) {
-//         if(value == nullptr) {
-//             std::cout<<"WARNING: value == nullptr"<<std::endl;
-//             continue;
-//         }
-//         if(inst->GetNumRets() == 0 || inst->GetType(0) != value->get_type()) {
-//             std::cout<<"WARNING: types don't match"<<std::endl;
-//         }
-//         switch(value->get_kind()) {
-//         case SymValue::Kind::INT: {
-//             std::cout<<"Value is int"<<std::endl;
-//             auto intSymValue = static_cast<IntSymValue*>(value);
-//             switch(value->get_type()) {
-//             case Type::U64: {
-//                 std::cout<<"Type is U64"<<std::endl;
-//                 uint64_t val = intSymValue->get_value().getLimitedValue();
-//                 std::cout<<"Numeric value is "<<val<<std::endl;
-//                 ConstantInt *replacementValue = new ConstantInt(val);
-//                 std::cout<<"Created constant"<<std::endl;
-//                 MovInst *replacement = new MovInst(value->get_type(), replacementValue, AnnotSet());
-//                 inst->getParent()->AddInst(replacement, inst);
-//                 std::cout<<"Created movInst"<<std::endl;
-//                 inst->replaceAllUsesWith(replacement);
-//                 inst->eraseFromParent();
-//                 std::cout<<"Replaced"<<std::endl;
-//             }
-//             }
-//         } break;
-//         default:
-//             std::cout<<"Not implemented yet"<<std::endl;
-//         }
-//     }
-// }
-
-// auto FilterPrecalculableWrites(const std::unordered_map<FlowNode*, std::unordered_map<DataStore::Write*, std::pair<SymValue*,SymValue*>>>& precalculableWrites)
-// {
-//     std::vector<std::tuple<SymValue*,SymValue*,Inst*>> result;
-
-//     //Only need to filter when there are multiple flownodes
-//     if(precalculableWrites.size() < 2) {
-//         for(auto& [node, map]: precalculableWrites) {
-//             for(auto& [write, pair]: map) {
-//                 auto& [addr, val] = pair;
-//                 result.push_back({addr, val, write->get_inst()});
-//             }
-//         }
-//         return result;
-//     }
-
-//     //std::unordered_map<std::pair<SymValue*,SymValue*>, Inst*> validWrites;
-
-//     for(auto& [node1, writes]: precalculableWrites) {
-//         std::unordered_map<FlowNode*,std::unordered_set<DataStore::Write*>> validWrites;
-//         for(auto& [node2, _]: precalculableWrites) {
-//             if (node1 == node2) continue;
-//             validWrites[node2] = std::unordered_set<DataStore::Write*>();
-
-//             for(auto& [write, pair]: writes) {
-//                 auto& [write_address, write_value] = pair;
-
-//                 auto node2Log = node2->get_store().getFullLog();
-//                 bool valid = true;
-//                 for(auto& action: node2Log) {
-//                     if(action->get_kind() == DataStore::Action::Kind::READ) {
-//                         auto read = static_cast<DataStore::Read*>(action);
-//                         if(SymComp::EQ(read->get_addr(), write_address) != SymComp::Result::FALSE) {
-//                             valid = !(SymComp::EQ(read->get_value(), write_value) != SymComp::Result::TRUE);
-//                             break;
-//                         }
-//                     }
-//                 }
-//                 if(valid) {
-//                     validWrites[node2].insert(write);
-//                 }
-//             }
-//         }
-
-//         auto intersection = validWrites.begin()->second;
-//         for(auto& [node, set]: validWrites) {
-//             auto temp = std::unordered_set<DataStore::Write*>();
-//             std::set_intersection(
-//                 intersection.begin(), intersection.end(),
-//                 set.begin(), set.end(),
-//                 std::inserter(temp, temp.begin())
-//             );
-//             intersection = temp;
-//         }
-//         for(auto& write: intersection) {
-//             auto& [addr, val] = precalculableWrites.at(node1).at(write);
-//             result.push_back({addr, val, write->get_inst()});
-//         }
-//     }
-
-//     return result;
-// }
-
-// void updateStaticDataStore(
-//     Prog* prog,
-//     std::vector<std::tuple<SymValue*, SymValue*, Inst*>> writesBeforeRead,
-//     std::function<unsigned(std::string_view)> GetOffset
-// ) {
-//     for(auto& [addr, value, inst]: writesBeforeRead) {
-//         if(value == nullptr) {
-//             std::cout<<"Value is a nullptr"<<std::endl;
-//             continue;
-//         }
-//         std::cout<<toString(inst)<<" writes "<<toString(value)<<" at "<<toString(addr)<<std::endl;
-//         if(addr->get_kind() == SymValue::Kind::STATICPTR) {
-//             auto address = static_cast<StaticPtrSymValue*>(addr);
-//             auto name = address->get_name();
-//             //TODO bounds check
-//             auto offset = address->get_offset().getLimitedValue();
-//             for(auto& dataSegment: prog->data()) {
-//                 for(auto& atom: dataSegment) {
-//                     if(atom.GetName() != name) continue;
-//                     std::cout<<"Found "<<name<<std::endl;
-//                     unsigned labelOffset = GetOffset(address->get_name());
-//                     std::cout<<"Label offset: "<<labelOffset<<std::endl;
-//                     Atom::iterator itemIter = atom.begin();
-//                     if(labelOffset <= offset) {
-//                         unsigned atomOffset = offset - labelOffset;
-//                         while(atomOffset > 0 ) {
-//                             std::cout<<"TODO: implement search"<<std::endl;
-//                             atomOffset = 0;
-//                         }
-//                         std::cout<<"Found item"<<std::endl;
-//                     } else {
-//                         std::cout<<"TODO: find item before label"<<std::endl;
-//                     }
-//                     auto item = *itemIter;
-//                     switch(value->get_kind()) {
-//                     case SymValue::Kind::INT: {
-//                         auto intSymValue = static_cast<IntSymValue*>(value);
-//                         std::cout<<"Value is an int"<<std::endl;
-//                         switch(item->GetKind()) {
-//                         case Item::Kind::ALIGN: std::cout<<"WARNING: Attempting to overwrite align with int"<<std::endl; break;
-//                         case Item::Kind::END: std::cout<<"WARNING: Attempting to overwrite end"<<std::endl; break;
-//                         case Item::Kind::FLOAT64: std::cout<<"WARNING: Attempting to overwrite float with int"<<std::endl; break;
-//                         case Item::Kind::INT8: std::cout<<"WARNING: Not implemented"<<std::endl; break;
-//                         case Item::Kind::INT16: std::cout<<"WARNING: Not implemented"<<std::endl; break;
-//                         case Item::Kind::INT32: std::cout<<"WARNING: Not implemented"<<std::endl; break;
-//                         case Item::Kind::INT64: {
-//                             unsigned typeLength = byteLength(value->get_type());
-//                             std::cout<<"Type length: "<<typeLength<<std::endl;
-//                             if(typeLength != 8) {
-//                                 std::cout<<"Attempting to overwrite int of length "<<8<<" with int of length "<<typeLength<<std::endl;
-//                             } else {
-//                                 //TODO bounds checking
-//                                 int64_t writeValue = intSymValue->get_value().getLimitedValue();
-//                                 std::cout<<"Write value: "<<writeValue<<std::endl;
-//                                 Item *newItem = new (item) Item(Item::Kind::INT64, writeValue);
-//                                 std::cout<<"Created new item"<<std::endl;
-//                                 inst->eraseFromParent();
-//                                 std::cout<<"Erased store"<<std::endl;
-//                             }
-//                         } break;
-//                         case Item::Kind::SPACE: std::cout<<"WARNING: Not implemented"<<std::endl; break;
-//                         case Item::Kind::STRING: std::cout<<"WARNING: Not implemented"<<std::endl; break;
-//                         case Item::Kind::SYMBOL: std::cout<<"WARNING: Not implemented"<<std::endl; break;
-//                         }
-//                     } break;
-//                     default:
-//                         std::cout<<"Unimplemented"<<std::endl;
-//                         break;
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
-
-// void SymbolicEvaluation::Optimise()
-// {
-//     std::cout<<"Optimising"<<std::endl;
-//     std::cout<<finishedNodes.size()<<" finished nodes"<<std::endl;
-
-//     auto [readResults, precalculableWrites] = AnalyseLogs(finishedNodes);
-//     auto readReplacements = CalculateReadReplacements(readResults);
-//     EnactReadReplacements(readReplacements);
-//     auto filteredWrites = FilterPrecalculableWrites(precalculableWrites);
-//     updateStaticDataStore(
-//         prog,
-//         filteredWrites,
-//         [node=finishedNodes[0]](std::string_view name) {
-//             return node->get_store().getLabel(name)->offset;
-//         }
-//     );
-
-// }
-
-//-----------------------------------------------------------------------------
-
 std::vector<Inst*> SymValueToInsts(SymValue *value, FlowNode *node, Prog *prog)
 {
     std::cout<<"Converting "<<toString(value)<<" to insts"<<std::endl;
@@ -694,7 +416,7 @@ RootFlowNode *SymbolicEvaluation::CreateRootNode()
     }
 
     return storagePool.persist(
-        new RootFlowNode(*startFunc, *prog, storagePool)
+        new RootFlowNode(*startFunc, *prog, storagePool, context)
     );
 }
 
@@ -719,9 +441,10 @@ SuccessorFlowNode *SymbolicEvaluation::CreateReturnFlowNode(
 
 SuccessorFlowNode *SymbolicEvaluation::CreateBlockFlowNode(
     Block_iterator block,
-    FlowNode *previous
+    FlowNode *previous,
+    std::optional<z3::expr> constraint
 ) {
-    return storagePool.persist(previous->CreateBlockNode(*block));
+    return storagePool.persist(previous->CreateBlockNode(*block, constraint));
 }
 
 SuccessorFlowNode *SymbolicEvaluation::CreateFunctionFlowNode(
@@ -967,6 +690,7 @@ void SymbolicEvaluation::Cmp(
     Cond c = cmpInst->GetCC();
     auto [lhs, rhs] = getOperandValues(cmpInst, node);
     SymComp::Result result;
+    std::optional<z3::expr> constraint;
 
     std::cout<<"lhs: "<<toString(lhs)<<" rhs: "<<toString(rhs)<<std::endl;
 
@@ -991,15 +715,19 @@ void SymbolicEvaluation::Cmp(
         result = SymComp::LT(lhs, rhs);
         break;
     
-    case Cond::GT:
+    case Cond::GT: {
         std::cout<<"Comparing GT"<<std::endl;
-        result = SymComp::GT(lhs, rhs);
-        break;
+        auto [r, constr] = SymComp::GT(lhs, rhs, node);
+        result = r;
+        constraint = constr;
+    } break;
     
-    case Cond::LE:
+    case Cond::LE: {
         std::cout<<"Comparing LE"<<std::endl;
-        result = SymComp::LE(lhs, rhs);
-        break;
+        auto [r, constr] = SymComp::LE(lhs, rhs, node);
+        result = r;
+        constraint = constr;
+    } break;
     
     case Cond::GE:
         std::cout<<"Comparing GE"<<std::endl;
@@ -1015,6 +743,18 @@ void SymbolicEvaluation::Cmp(
     SymValue *value = SymComp::ToSymValue(result, cmpInst->GetType());
     storagePool.persist(value);
     node->AllocateResult(cmpInst, value);
+    if(constraint.has_value() && value->get_kind() == SymValue::Kind::UNKNOWN) {
+        auto unknown = static_cast<UnknownSymValue*>(value);
+        auto expr = 
+            (
+                node->get_context().bv_const(unknown->get_name().c_str(), bitLength(unknown->get_type()))
+                != 0
+            )
+            == *constraint;
+        std::cout<<"Adding constraint "<<expr.to_string()<<std::endl;
+        node->AddConstraint(expr);
+        
+    }
 }
 
 std::unordered_set<FlowNode*> SymbolicEvaluation::Jump(
@@ -1081,6 +821,49 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         std::cout<<"Jumping to block "<<block->GetName()<<std::endl;
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
+    } else if ( symCond->get_kind() == SymValue::Kind::UNKNOWN) {
+        std::cout<<"Branching based on unknown"<<std::endl;
+        auto unknown = static_cast<UnknownSymValue*>(symCond);
+        auto &c = node->get_context();
+        z3::expr trueConstraint = c.bv_const(unknown->get_name().c_str(), bitLength(unknown->get_type())) != 0;
+        bool takeTrue, takeFalse;
+        z3::solver s(c);
+        node->AssertConstraints(s);
+        s.push();
+        s.add(!trueConstraint);
+        switch(s.check()) {
+        case z3::sat: takeFalse = true; break;
+        case z3::unsat: takeFalse = false; break;
+        case z3::unknown: takeFalse = true; break;
+        }
+        s.pop();
+        s.add(trueConstraint);
+        switch(s.check()) {
+        case z3::sat: takeTrue = true; break;
+        case z3::unsat: takeTrue = false; break;
+        case z3::unknown: takeTrue = true; break;
+        }
+        if(takeTrue) {
+            std::cout<<"Taking true: "<<trueBlock->GetName()<<" with constraint "<<trueConstraint.to_string()<<std::endl;
+            result.insert(
+                CreateBlockFlowNode(
+                    trueBlock->getIterator(),
+                    node,
+                    trueConstraint
+                )
+            );
+        }
+        if(takeFalse) {
+            std::cout<<"Taking false: "<<falseBlock->GetName()<<" with constraint "<<(!trueConstraint).to_string()<<std::endl;
+            result.insert(
+                CreateBlockFlowNode(
+                    falseBlock->getIterator(),
+                    node,
+                    !trueConstraint
+                )
+            );
+        }
+
     } else {
         std::cout<<"Taking both branches"<<std::endl;
         std::cout<<"Jumping to blocks "<<trueBlock->GetName()<<" and "<<falseBlock->GetName()<<std::endl;
@@ -1586,6 +1369,21 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Sub(
                 break;
             }
         } break;
+        case SymValue::Kind::UNKNOWN: {
+            auto lval = static_cast<UnknownSymValue*>(lhs);
+            switch(rhs->get_kind()) {
+            case SymValue::Kind::INT: {
+                auto rval = static_cast<IntSymValue*>(rhs);
+                auto unknown = new UnknownSymValue(resultType);
+                z3::expr x = context.bv_const(unknown->get_name().c_str(), bitLength(resultType));
+                z3::expr l = context.bv_const(lval->get_name().c_str(), bitLength(lval->get_type()));
+                z3::expr r = context.bv_val(rval->get_value().getLimitedValue(), bitLength(rval->get_type()));
+                z3::expr constraint = (x == (l - r));
+                node->AddConstraint(constraint);
+                result = unknown;
+            }
+            }
+        } break;
         default:
             std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" minus "<<toString(rhs->get_kind())<<std::endl;
             result = new UnknownSymValue(resultType);
@@ -1801,6 +1599,19 @@ void Z3Test()
     case z3::unsat: std::cout<<"De-Morgan is valid. Z3 is working"<<std::endl; break;
     case z3::sat: std::cout<<"De-Morgan is not valid. Z3 is not working"<<std::endl; break;
     case z3::unknown: std::cout<<"Validity of De-Morgan is unknown. Z3 is not working"<<std::endl; break;
+    }
+
+    z3::expr a1 = c.bool_const("a");
+    z3::expr a2 = c.bool_const("a");
+    z3::expr assertion = a1 != a2;
+    z3::solver s1(c);
+    s1.add(assertion);
+    std::cout<<s1<<std::endl;
+    std::cout<<s1.to_smt2()<<std::endl;
+    switch(s1.check()) {
+    case z3::unsat: std::cout<<"Equal names mean equal values"<<std::endl; break;
+    case z3::sat: std::cout<<"Equal names do not mean equal values"<<std::endl; break;
+    case z3::unknown: std::cout<<"Equal names may or may not mean equal values"<<std::endl; break;
     }
 
     std::cout<<std::endl;

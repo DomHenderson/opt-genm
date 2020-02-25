@@ -3,6 +3,8 @@
 #include <sstream>
 #include <vector>
 
+#include "z3++.h"
+
 #include "core/constant.h"
 #include "core/insts_call.h"
 #include "flownode.h"
@@ -23,21 +25,28 @@ Inst_iterator NextInst(Inst_iterator i);
 
 FlowNode::FlowNode(
     Frame &frame,
-    SymExPool &pool
+    SymExPool &pool,
+    z3::context &context
 ) :
     currentFrame(frame),
-    pool(pool)
+    pool(pool),
+    context(context)
 {
 }
 
-SuccessorFlowNode *FlowNode::CreateBlockNode(Block &block)
+SuccessorFlowNode *FlowNode::CreateBlockNode(Block &block, std::optional<z3::expr> constraint)
 {
-    return new SuccessorFlowNode(
+    auto node = new SuccessorFlowNode(
         block.begin(),
         get_frame(),
         *this,
-        pool
+        pool,
+        context
     );
+    if(constraint.has_value()) {
+        node->AddConstraint(*constraint);
+    }
+    return node;
 }
 
 SuccessorFlowNode *FlowNode::CreateFunctionNode(
@@ -54,7 +63,8 @@ SuccessorFlowNode *FlowNode::CreateFunctionNode(
             NextInst(caller)
         )),
         *this,
-        pool
+        pool,
+        context
     );
 }
 
@@ -71,7 +81,8 @@ SuccessorFlowNode *FlowNode::CreateTailCallNode(
             get_frame().get_resume_inst()
         )),
         *this,
-        pool
+        pool,
+        context
     );
 }
 
@@ -96,6 +107,11 @@ Frame &FlowNode::get_frame()
     return currentFrame;
 }
 
+z3::context &FlowNode::get_context()
+{
+    return context;
+}
+
 SymValue *FlowNode::GetRegister(ConstantReg::Kind reg)
 {
     auto iter = registers.find(reg);
@@ -113,6 +129,12 @@ void FlowNode::SetRegister(
     registers[reg] = value;
 }
 
+void FlowNode::AddConstraint(
+    z3::expr constraint
+) {
+    constraints.push_back(constraint);
+}
+
 //-----------------------------------------------------------------------------
 // SuccessorFlowNode
 //-----------------------------------------------------------------------------
@@ -121,9 +143,10 @@ SuccessorFlowNode::SuccessorFlowNode(
     Inst_iterator startingInst,
     Frame &frame,
     FlowNode &previous,
-    SymExPool &pool
+    SymExPool &pool,
+    z3::context &context
 ) :
-    FlowNode(frame, pool),
+    FlowNode(frame, pool, context),
     startingInst(startingInst),
     previousNode(previous),
     dataStore(CreateLogStore(previous, pool))
@@ -144,7 +167,8 @@ SuccessorFlowNode *SuccessorFlowNode::CreateReturnNode()
         get_frame().get_resume_inst().value(),
         frame,
         *this,
-        pool
+        pool,
+        context
     );
 
     return node;
@@ -221,6 +245,26 @@ std::string SuccessorFlowNode::get_name()
     return stream.str();
 }
 
+void SuccessorFlowNode::AssertConstraints(
+    z3::solver &solver
+) {
+    for(auto& c: constraints) {
+        solver.add(c);
+    }
+    previousNode.AssertConstraints(solver);
+}
+
+void SuccessorFlowNode::AssertNegativeConstraints(
+    z3::solver &solver
+) {
+    for(auto& c: constraints) {
+        solver.add(!c);
+    }
+    previousNode.AssertNegativeConstraints(solver);
+    std::cout<<solver.to_smt2()<<std::endl;
+    std::cout<<"-"<<std::endl;
+}
+
 //-----------------------------------------------------------------------------
 // RootFlowNode
 //-----------------------------------------------------------------------------
@@ -228,9 +272,10 @@ std::string SuccessorFlowNode::get_name()
 RootFlowNode::RootFlowNode(
     Func &func,
     Prog &prog,
-    SymExPool &pool
+    SymExPool &pool,
+    z3::context &context
 ) :
-    FlowNode(CreateBaseFrame(func, pool), pool),
+    FlowNode(CreateBaseFrame(func, pool), pool, context),
     func(func),
     baseStore(prog, pool),
     dataStore(baseStore, pool)
@@ -318,6 +363,24 @@ std::string RootFlowNode::get_name()
         <<" "
         <<get_func()->GetName();
     return stream.str();
+}
+
+void RootFlowNode::AssertConstraints(
+    z3::solver &solver
+) {
+    for(auto& c: constraints) {
+        solver.add(c);
+    }
+}
+
+void RootFlowNode::AssertNegativeConstraints(
+    z3::solver &solver
+) {
+    for(auto& c: constraints) {
+        solver.add(!c);
+    }
+    std::cout<<solver.to_smt2()<<std::endl;
+    std::cout<<"-"<<std::endl;
 }
 
 //-----------------------------------------------------------------------------
