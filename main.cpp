@@ -132,19 +132,19 @@ static void AddOpt1(PassManager &mngr)
 // -----------------------------------------------------------------------------
 static void AddOpt2(PassManager &mngr)
 {
-  mngr.Add<MoveElimPass>();
-  mngr.Add<DeadCodeElimPass>();
-  mngr.Add<SimplifyCfgPass>();
-  mngr.Add<InlinerPass>();
-  mngr.Add<HigherOrderPass>();
-  mngr.Add<InlinerPass>();
-  mngr.Add<DeadFuncElimPass>();
+  //mngr.Add<MoveElimPass>();
+  //mngr.Add<DeadCodeElimPass>();
+  //mngr.Add<SimplifyCfgPass>();
+  //mngr.Add<InlinerPass>();
+  //mngr.Add<HigherOrderPass>();
+  //mngr.Add<InlinerPass>();
+  //mngr.Add<DeadFuncElimPass>();
   mngr.Add<SymbolicEvaluation>();
-  mngr.Add<SCCPPass>();
-  mngr.Add<SimplifyCfgPass>();
-  mngr.Add<DeadCodeElimPass>();
-  mngr.Add<PointsToAnalysis>();
-  mngr.Add<DeadFuncElimPass>();
+  // mngr.Add<SCCPPass>();
+  // mngr.Add<SimplifyCfgPass>();
+  // mngr.Add<DeadCodeElimPass>();
+  // mngr.Add<PointsToAnalysis>();
+  // mngr.Add<DeadFuncElimPass>();
 }
 
 // -----------------------------------------------------------------------------

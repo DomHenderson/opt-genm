@@ -8,6 +8,8 @@
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/StringRef.h>
 
+#include "z3++.h"
+
 #include "core/type.h"
 
 class SymValue {
@@ -17,6 +19,7 @@ public:
     enum class Kind {
         BOOL,
         BLOCKREF,
+        CONDITIONAL,
         EXTERN,
         FLOAT,
         FUNCREF,
@@ -139,4 +142,22 @@ public:
 private:
     std::string name;
     static unsigned long previousIndex;
+};
+
+class CondSymValue: public SymValue {
+public:
+    CondSymValue(
+        SymValue *trueValue,
+        SymValue *falseValue,
+        z3::expr condition
+    );
+    Kind get_kind() const override { return Kind::CONDITIONAL; }
+    z3::expr get_condition() const { return condition; }
+    SymValue *if_true() const { return trueValue; }
+    SymValue *if_false() const { return falseValue; }
+    virtual CondSymValue *copy_cast(Type type) const override { std::cout<<"Copy cast for conditional sym values not implemented"<<std::endl; assert(false); } //TODO implement
+private:
+    SymValue *trueValue;
+    SymValue *falseValue;
+    z3::expr condition;
 };

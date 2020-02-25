@@ -278,6 +278,16 @@ std::string toString(SymValue &value)
         auto b = static_cast<BoolSymValue&>(value);
         stream<<"bool "<<(b.get_value()?"true":"false");
     } break;
+    case SymValue::Kind::CONDITIONAL: {
+        auto condValue = static_cast<CondSymValue&>(value);
+        stream<<"ite("
+            <<condValue.get_condition().to_string()
+            <<", "
+            <<toString(condValue.if_true())
+            <<", "
+            <<toString(condValue.if_false())
+            <<")";
+    } break;
     case SymValue::Kind::EXTERN: {
         auto ext = static_cast<ExternSymValue&>(value);
         stream<<"extern "<<ext.get_name();
@@ -297,7 +307,9 @@ std::string toString(SymValue &value)
     case SymValue::Kind::UNKNOWN: {
         auto unknownValue = static_cast<UnknownSymValue&>(value);
         stream<<"symbolic value "<<unknownValue.get_name();
-    }
+    } break;
+    default:
+        stream<<"Unhandled SymValue toString case";
     }
 
     stream<<" ("<<toString(value.get_type())<<")";
@@ -534,3 +546,12 @@ void PrintDataInfo(Prog *prog)
     std::cout<<"----------------------------------------"<<std::endl;
     std::cout<<std::endl;
 }
+
+Logger Log = Logger(0);
+HeaderLogger LogError = HeaderLogger(0, "ERROR: ");
+HeaderLogger LogWarning = HeaderLogger(5, "WARING: ");
+Logger LogFlow = Logger(5);
+Logger LogTrace = Logger(10);
+Logger LogDetail = Logger(20);
+
+unsigned Logger::cutoff = 10;

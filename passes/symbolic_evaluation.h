@@ -43,6 +43,8 @@ private:
 
     std::optional<std::unordered_set<FlowNode*>> RunInst(Inst &inst, FlowNode *node);
 
+    void JoinNodes();
+    FlowNode *ChooseNextNode();
     void StepNode(FlowNode *node);
 
     void Optimise();
@@ -72,8 +74,6 @@ private:
     void                                         Phi(PhiInst *phiInst, FlowNode *node);
     void                                         ZExt(ZExtInst* zExtInst, FlowNode *node);
 
-    void AllocateValue(Inst *inst, Value *value, Type type, FlowNode *node);
-
     RootFlowNode *CreateRootNode();
     SuccessorFlowNode *CreateTailCallFlowNode(Func_iterator func, std::vector<SymValue*> args, FlowNode *previous);
     SuccessorFlowNode *CreateReturnFlowNode(FlowNode *previous);
@@ -82,7 +82,7 @@ private:
 
     Prog *prog;
 
-    std::stack<FlowNode*> frontier;
+    std::unordered_set<FlowNode*> frontier;
     std::unordered_map<FlowNode*, SymValue*> finishedNodes;
 
     bool carryOn = true;

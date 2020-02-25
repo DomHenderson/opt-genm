@@ -53,6 +53,7 @@ const char *SymbolicEvaluation::GetPassName() const
 
 void SymbolicEvaluation::Run(Prog *program)
 {
+    Log<<"Running symbolic execution"<<End();
     z3::set_param("parallel.enable", true);
     Z3Test();
 
@@ -60,54 +61,155 @@ void SymbolicEvaluation::Run(Prog *program)
 
     // ---------------------------------------------------------------
     prog = program;
-    std::cout<<"Starting"<<std::endl;
-    frontier.push(CreateRootNode());
-    std::cout<<"Done"<<std::endl;
+    LogFlow<<"Starting"<<End();
+    frontier.insert(CreateRootNode());
+    LogFlow<<"Done"<<End();
 
-    std::cout<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<"EXECUTION START"<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<std::endl;
+    LogFlow<<End();
+    LogFlow<<"----------------------------------------"<<End();
+    LogFlow<<"EXECUTION START"<<End();
+    LogFlow<<"----------------------------------------"<<End();
+    LogFlow<<End();
 
     while(!frontier.empty() && count < limit) {
-        FlowNode *node = frontier.top();
-        frontier.pop();
-        std::cout<<"Stepping node "<<node->get_name()<<std::endl;
+        std::cout<<"Joining"<<std::endl;
+        JoinNodes();
+        std::cout<<"Choosing"<<std::endl;
+        FlowNode *node = ChooseNextNode();
+        std::cout<<"Erasing"<<std::endl;
+        frontier.erase(node);
+        std::cout<<"Printing"<<std::endl;
+        LogFlow<<"Stepping node "<<node->get_name()<<End();
+        std::cout<<"Stepping"<<std::endl;
         StepNode(node);
+        std::cout<<"Looping"<<std::endl;
     }
 
-    std::cout<<(frontier.empty() ? "Finished" : "Finished early")<<std::endl;
+    LogFlow<<(frontier.empty() ? "Finished" : "Finished early")<<End();
 
-    std::cout<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<"EXECUTION END"<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<std::endl;
+    LogFlow<<End();
+    LogFlow<<"----------------------------------------"<<End();
+    LogFlow<<"EXECUTION END"<<End();
+    LogFlow<<"----------------------------------------"<<End();
+    LogFlow<<End();
 
     if(frontier.empty()) {
         //Optimise();
         Rewrite();
     }
-    std::cout<<"Finished"<<std::endl;
+    Log<<"Finished"<<End();
+    std::cout<<std::endl;
+}
+
+void SymbolicEvaluation::JoinNodes()
+{
+    LogTrace<<"Running join pass"<<End(true);
+    std::unordered_map<Inst*, FlowNode*> map;
+    LogTrace<<"Frontier contains"<<End();
+    for(auto& node: frontier) {
+        LogTrace<<"  "<<node->get_name()<<End();
+    }
+
+    while(!frontier.empty()) {
+        auto node = *frontier.begin();
+        frontier.erase(node);
+
+        Inst &start = *node->get_starting_inst();
+        auto iter = map.find(&start);
+        if(iter == map.end()) {
+            map[&start] = node;
+        } else {
+            LogTrace<<"Joining "<<node->get_name()<<" and "<<map[&start]->get_name()<<End(true);
+            JoinFlowNode *joinNode = storagePool.persist(
+                new JoinFlowNode(
+                    node->get_starting_inst(),
+                    node->get_frame(), //TODO join frames or only join on nodes with same frame
+                    *node,
+                    *map[&start],
+                    storagePool,
+                    context
+                )
+            );
+            frontier.insert(joinNode);
+            map.erase(iter);
+        }
+    }
+    for(auto& [inst, node]: map) {
+        LogTrace<<"Inserting "<<node->get_name()<<End();
+        frontier.insert(node);
+    }
+    LogTrace<<"Finished join pass"<<End(true);
+}
+
+FlowNode *SymbolicEvaluation::ChooseNextNode()
+{
+    if(frontier.empty()) {
+        LogError<<"Attempted to choose node from empty frontier"<<End();
+        return nullptr;
+    }
+
+    auto evaluate = [](auto node) {
+        auto name = node->get_block()->GetName();
+        if(name == ".START") {
+            return 0;
+        } else if (name == ".LOOP_HEADER") {
+            return 1;
+        } else if (name == ".LOOP_START") {
+            return 2;
+        } else if (name == ".LOOP_END") {
+            return 3;
+        } else if (name == ".BAD_RET") {
+            return 4;
+        } else if (name == ".GOOD_RET") {
+            return 5;
+        } else {
+            LogError<<"Unexpected block name"<<End();
+            return 6;
+        }
+    };
+
+    auto result = *frontier.begin();
+    unsigned resultValue = evaluate(result);
+
+    for(auto& node: frontier) {
+        //TODO implement choose function
+        unsigned value = evaluate(node);
+        if(value < resultValue) {
+            result = node;
+            resultValue = value;
+        }
+    }
+
+    return result;
 }
 
 void SymbolicEvaluation::StepNode(FlowNode *node)
 {
+    std::cout<<"Getting information"<<std::endl;
     auto inst = node->get_starting_inst();
     auto block = node->get_block();
     auto func = node->get_func();
     std::optional<std::unordered_set<FlowNode*>> next;
 
     while(inst != block->end() && next == std::nullopt) {
+        std::cout<<"Running inst "<<toString(*inst)<<std::endl;
         next = RunInst(*inst, node);
+        std::cout<<"Incrementing inst"<<std::endl;
+        LogDetail<<"Incrementing inst "<<toString(*inst)<<End();
         ++inst;
+        if(inst == block->end()) {
+            std::cout<<"Incremented to block end"<<std::endl;
+            LogDetail<<"Incremented to block end"<<End();
+        } else {
+            std::cout<<"Incremented inst "<<toString(*inst)<<std::endl;
+            LogDetail<<"Incremented inst "<<toString(*inst)<<End();
+        }
     }
 
     if(next != std::nullopt) {
         auto nextNodes = next.value();
         for(auto n: nextNodes) {
-            frontier.push(n);
+            frontier.insert(n);
         }
     }
 
@@ -118,116 +220,119 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
     Inst &inst,
     FlowNode *node
 ) {
+    std::cout<<"Start of run inst"<<std::endl;
     switch(inst.GetKind()) {
     case Inst::Kind::ADD:
-        std::cout<<"Running add"<<std::endl;
+        LogTrace<<"Running add"<<End();
         return Add(static_cast<AddInst*>(&inst), node);
 
     case Inst::Kind::AND:
-        std::cout<<"Running and"<<std::endl;
+        LogTrace<<"Running and"<<End();
         And(static_cast<AndInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::ARG:
-        std::cout<<"Running arg"<<std::endl;
+        LogTrace<<"Running arg"<<End();
         Arg(static_cast<ArgInst*>(&inst), node);
         return std::nullopt;
     
     case Inst::Kind::CALL: 
-        std::cout<<"Running call"<<std::endl;
+        LogTrace<<"Running call"<<End();
         return Call(static_cast<CallInst*>(&inst), node);
     
     case Inst::Kind::CMP:
-        std::cout<<"Running cmp"<<std::endl;
+        LogTrace<<"Running cmp"<<End();
         Cmp(static_cast<CmpInst*>(&inst), node);
         return std::nullopt;
     
     case Inst::Kind::JCC:
-        std::cout<<"Running jcc"<<std::endl;
+        LogTrace<<"Running jcc"<<End();
         return JumpCond(static_cast<JumpCondInst*>(&inst), node);
     
     case Inst::Kind::JMP:
-        std::cout<<"Running jmp"<<std::endl;
+        LogTrace<<"Running jmp"<<End();
         return Jump(static_cast<JumpInst*>(&inst), node);
 
     case Inst::Kind::JI:
-        std::cout<<"Running jump indirect"<<std::endl;
+        LogTrace<<"Running jump indirect"<<End();
         return JumpIndirect(static_cast<JumpIndirectInst*>(&inst), node);
     
     case Inst::Kind::LD:
-        std::cout<<"Running load"<<std::endl;
+        LogTrace<<"Running load"<<End();
         Load(static_cast<LoadInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::MOV:
-        std::cout<<"Running mov"<<std::endl;
+        LogTrace<<"Running mov"<<End();
         Mov(static_cast<MovInst*>(&inst), node);
         return std::nullopt;
     
     case Inst::Kind::MUL:
-        std::cout<<"Running mul"<<std::endl;
+        LogTrace<<"Running mul"<<End();
         Mul(static_cast<MulInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::PHI:
-        std::cout<<"Running phi"<<std::endl;
+        std::cout<<"Phi"<<std::endl;
+        LogTrace<<"Running phi"<<End();
         Phi(static_cast<PhiInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::REM:
-        std::cout<<"Running rem"<<std::endl;
+        LogTrace<<"Running rem"<<End();
         Rem(static_cast<RemInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::RET:
-        std::cout<<"Running ret"<<std::endl;
+        LogTrace<<"Running ret"<<End();
         return Ret(static_cast<ReturnInst*>(&inst), node);
 
     case Inst::Kind::SET:
-        std::cout<<"Running set"<<std::endl;
+        LogTrace<<"Running set"<<End();
         Set(static_cast<SetInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::SEXT:
-        std::cout<<"Running sign extend"<<std::endl;
+        LogTrace<<"Running sign extend"<<End();
         SExt(static_cast<SExtInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::SLL:
-        std::cout<<"Running sll"<<std::endl;
+        LogTrace<<"Running sll"<<End();
         LeftLogicalShift(static_cast<SllInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::SRA:
-        std::cout<<"Running sra"<<std::endl;
+        LogTrace<<"Running sra"<<End();
         RightArithmeticShift(static_cast<SraInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::SRL:
-        std::cout<<"Running srl"<<std::endl;
+        LogTrace<<"Running srl"<<End();
         RightLogicalShift(static_cast<SrlInst*>(&inst), node);
         return std::nullopt;
     
     case Inst::Kind::ST:
-        std::cout<<"Running store"<<std::endl;
+        LogTrace<<"Running store"<<End();
         Store(static_cast<StoreInst*>(&inst), node);
         return std::nullopt;
 
     case Inst::Kind::SUB:
-        std::cout<<"Running sub"<<std::endl;
+        LogTrace<<"Running sub"<<End();
         Sub(static_cast<SubInst*>(&inst), node);
+        LogTrace<<"Finished sub"<<End();
         return std::nullopt;
 
     case Inst::Kind::TCALL:
-        std::cout<<"Running tail call"<<std::endl;
+        LogTrace<<"Running tail call"<<End();
         return TCall(static_cast<TailCallInst*>(&inst), node);
 
     case Inst::Kind::ZEXT:
-        std::cout<<"Running zero extend"<<std::endl;
+        LogTrace<<"Running zero extend"<<End();
         ZExt(static_cast<ZExtInst*>(&inst), node);
         return std::nullopt;
     default:
-        std::cout<<"Skipping "<<toString(inst)<<std::endl;
+        LogTrace<<"Skipping "<<toString(inst)<<End();
         return std::nullopt;
     }
 }
@@ -236,7 +341,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
 
 std::vector<Inst*> SymValueToInsts(SymValue *value, FlowNode *node, Prog *prog)
 {
-    std::cout<<"Converting "<<toString(value)<<" to insts"<<std::endl;
+    LogTrace<<"Converting "<<toString(value)<<" to insts"<<End();
     assert(value != nullptr);
     auto result = std::vector<Inst*>();
     switch(value->get_kind()) {
@@ -266,37 +371,37 @@ std::vector<Inst*> SymValueToInsts(SymValue *value, FlowNode *node, Prog *prog)
         auto result = std::vector<Inst*>();
     } break;
     case SymValue::Kind::HEAPPTR: {
-        std::cout<<"Not implemented yet"<<std::endl;
+        LogError<<"Not implemented yet"<<End(true);
         assert(false);
     } break;
     case SymValue::Kind::INT: {
-        std::cout<<"Int"<<std::endl;
+        LogDetail<<"Int"<<End();
         auto intValue = static_cast<IntSymValue*>(value);
-        std::cout<<toString(intValue)<<std::endl;
+        LogDetail<<toString(intValue)<<End();
         auto inst = new MovInst(value->get_type(), new ConstantInt(intValue->get_value().getLimitedValue()), AnnotSet());
-        std::cout<<toString(inst)<<std::endl;
+        LogDetail<<toString(inst)<<End();
         result.push_back(inst);
     } break;
     case SymValue::Kind::STATICPTR: {
-        std::cout<<"Static ptr"<<std::endl;
+        LogDetail<<"Static ptr"<<End();
         auto ptrValue = static_cast<StaticPtrSymValue*>(value);
         auto atom = FindAtomByName(ptrValue->get_name(), prog);
         auto addrInst = new MovInst(value->get_type(), atom, AnnotSet());
         result.push_back(addrInst);
-        std::cout<<toString(addrInst)<<std::endl;
+        LogDetail<<toString(addrInst)<<End();
 
         unsigned defaultOffset = node->get_store().getLabel(ptrValue->get_name())->offset;
         unsigned offset = ptrValue->get_offset().getLimitedValue();
         if(offset < defaultOffset) {
-            std::cout<<"Default offset for "<<ptrValue->get_name()<<" is "<<defaultOffset<<std::endl;
-            std::cout<<"Actual offset is "<<ptrValue->get_offset().getLimitedValue()<<std::endl;
+            LogDetail<<"Default offset for "<<ptrValue->get_name()<<" is "<<defaultOffset<<End();
+            LogDetail<<"Actual offset is "<<ptrValue->get_offset().getLimitedValue()<<End();
             auto diffInst = new MovInst(value->get_type(), new ConstantInt(defaultOffset-offset), AnnotSet());
             result.push_back(diffInst);
             auto subInst = new SubInst(value->get_type(), addrInst, diffInst, AnnotSet());
             result.push_back(subInst);
         } else if(offset > defaultOffset) {
-            std::cout<<"Default offset for "<<ptrValue->get_name()<<" is "<<defaultOffset<<std::endl;
-            std::cout<<"Actual offset is "<<ptrValue->get_offset().getLimitedValue()<<std::endl;
+            LogDetail<<"Default offset for "<<ptrValue->get_name()<<" is "<<defaultOffset<<End();
+            LogDetail<<"Actual offset is "<<ptrValue->get_offset().getLimitedValue()<<End();
             auto diffInst = new MovInst(value->get_type(), new ConstantInt(offset-defaultOffset), AnnotSet());
             result.push_back(diffInst);
             auto addInst = new AddInst(value->get_type(), addrInst, diffInst, AnnotSet());
@@ -304,30 +409,31 @@ std::vector<Inst*> SymValueToInsts(SymValue *value, FlowNode *node, Prog *prog)
         }
     } break;
     case SymValue::Kind::UNKNOWN:
-        std::cout<<"Not implemented yet"<<std::endl;
+        LogError<<"Not implemented yet"<<End(true);
         assert(false);
         break;
     default:
+        LogError<<"Missing case"<<End(true);
         assert(false);
         break;
     }
-    std::cout<<"Returning "<<result.size()<<" insts"<<std::endl;
+    LogDetail<<"Returning "<<result.size()<<" insts"<<End();
     return result;
 }
 
 std::vector<DataStore::Action*> GetImportantWrites(FlowNode *node)
 {
     std::vector<DataStore::Action*> log = node->get_store().getFullLog();
-    std::cout<<"Retrieved log of size "<<log.size()<<std::endl;
+    LogDetail<<"Retrieved log of size "<<log.size()<<End();
     for(int i = log.size()-1; i >= 0; --i) {
-        std::cout<<"i: "<<i<<std::endl;
+        LogDetail<<"i: "<<i<<End();
         auto action = log[i];
         if(action->get_kind() == DataStore::Action::Kind::WRITE) {
             auto write = static_cast<DataStore::Write*>(action);
             for(int j = i-1; j >= 0; --j) {
                 if(log[j]->get_kind() == DataStore::Action::Kind::WRITE) {
                     auto write2 = static_cast<DataStore::Write*>(log[j]);
-                    if(SymComp::EQ(write->get_addr(), write2->get_addr()) == SymComp::Result::TRUE) {
+                    if(SymComp::EQ(write->get_addr(), write2->get_addr(), node).first == SymComp::Result::TRUE) {
                         log.erase(log.begin()+j);
                         --i;
                     }
@@ -337,7 +443,7 @@ std::vector<DataStore::Action*> GetImportantWrites(FlowNode *node)
             log.erase(log.begin()+i);
         }
     }
-    std::cout<<"Finished getting important writes"<<std::endl;
+    LogDetail<<"Finished getting important writes"<<End();
     return log;
 }
 
@@ -356,53 +462,53 @@ void SymbolicEvaluation::Rewrite()
             return std::make_pair(write->get_inst(), write->get_addr());
         }
     );
-    std::cout<<"Populated write insts"<<std::endl;
+    LogDetail<<"Populated write insts"<<End();
     auto writeOperandInsts = std::vector<std::vector<Inst*>>();
     for(auto& [inst, addr]: writeInsts){
-        std::cout<<toString(inst)<<std::endl;
+        LogDetail<<toString(inst)<<End();
         if(inst->GetKind() == Inst::Kind::ST) {
             auto storeInst = static_cast<StoreInst*>(inst);
             auto op = storeInst->GetVal();
-            std::cout<<toString(op)<<std::endl;
+            LogDetail<<toString(op)<<End();
             auto symValue = endNode->GetResult(op);
-            std::cout<<toString(symValue)<<std::endl;
+            LogDetail<<toString(symValue)<<End();
             auto valueInsts = SymValueToInsts(symValue, endNode, prog);
             auto addrInsts = SymValueToInsts(addr, endNode, prog);
             auto allInsts = valueInsts;
             allInsts.insert(allInsts.end(), addrInsts.begin(), addrInsts.end());
             auto newStoreInst = new StoreInst(storeInst->GetStoreSize(), *addrInsts.rbegin(), *valueInsts.rbegin(), AnnotSet());
-            std::cout<<"Created new store inst "<<toString(newStoreInst)<<std::endl;
+            LogDetail<<"Created new store inst "<<toString(newStoreInst)<<End();
             allInsts.push_back(newStoreInst);
             writeOperandInsts.push_back(allInsts);
         } else {
-            std::cout<<"Other writes no implemented yet"<<std::endl;
+            LogError<<"Other writes not implemented yet"<<End(true);
             assert(false);
         }
     }
-    std::cout<<"Creating new block"<<std::endl;
+    LogDetail<<"Creating new block"<<End();
     Block *block = new Block(".rewriteBlock1");
-    std::cout<<"Created new block"<<std::endl;
-    std::cout<<"Adding write operand insts"<<std::endl;
+    LogDetail<<"Created new block"<<End();
+    LogDetail<<"Adding write operand insts"<<End();
     for(auto& v: writeOperandInsts) {
         for(auto& inst: v) {
-            std::cout<<"Adding "<<toString(inst)<<std::endl;
+            LogDetail<<"Adding "<<toString(inst)<<End();
             block->AddInst(inst);
         }
     }
-    std::cout<<"Adding return insts"<<std::endl;
+    LogDetail<<"Adding return insts"<<End();
     for(auto i = insts.rbegin(); i != insts.rend(); ++i) {
-        std::cout<<"Adding "<<toString(*i)<<std::endl;
+        LogDetail<<"Adding "<<toString(*i)<<End();
         block->AddInst(*i);
     }
     auto returnInst = new ReturnInst(*insts.rbegin(), AnnotSet());
-    std::cout<<"Adding final return inst "<<toString(returnInst)<<std::endl;
+    LogDetail<<"Adding final return inst "<<toString(returnInst)<<End();
     block->AddInst(returnInst);
     Func *func = new Func(prog, endNode->get_func()->GetName());
     func->AddBlock(block);
     prog->AddFunc(func);
     endNode->get_func()->replaceAllUsesWith(func);
     endNode->get_func()->eraseFromParent();
-    std::cout<<"Done"<<std::endl;
+    LogFlow<<"Done"<<End();
 }
 
 //-----------------------------------------------------------------------------
@@ -412,7 +518,7 @@ RootFlowNode *SymbolicEvaluation::CreateRootNode()
     PrintDataInfo(prog);
     auto startFunc = FindFuncByName(start_function, prog);
     if(startFunc == prog->end()) {
-        std::cout<<"Failed to create root node"<<std::endl;
+        LogWarning<<"Failed to create root node"<<End();
         return nullptr;
     }
 
@@ -482,21 +588,22 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
             case SymValue::Kind::INT: {
                 IntSymValue *rint = static_cast<IntSymValue*>(rhs);
                 result = new StaticPtrSymValue(laddr->get_name(), laddr->get_offset()+rint->get_value(), laddr->get_max(), resultType);
-                std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<std::endl;
+                LogDetail<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<End();
             } break;
             default:
-                std::cout<<"WARNING: Adding STATICPTR and not INT"<<std::endl;
+                LogWarning<<"Adding STATICPTR and not INT"<<End();
                 result = new UnknownSymValue(resultType);
                 break;
             }
         } break;
         case SymValue::Kind::INT: {
+            LogDetail<<"Adding lhs int"<<End();
             IntSymValue *lint = static_cast<IntSymValue*>(lhs);
             switch(rhs->get_kind()) {
             case SymValue::Kind::STATICPTR: {
                 StaticPtrSymValue *raddr = static_cast<StaticPtrSymValue*>(rhs);
                 result = new StaticPtrSymValue(raddr->get_name(), raddr->get_offset()+lint->get_value(), raddr->get_max(), resultType);
-                std::cout<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<std::endl;
+                LogDetail<<lint->toString()<<"+"<<raddr->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<End();
             } break;
             case SymValue::Kind::FLOAT: {
                 auto rf = static_cast<FloatSymValue*>(rhs);
@@ -505,31 +612,32 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Add(
                     resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                     resultValue = resultValue + rf->get_value();
                     result = new FloatSymValue(resultValue, resultType);
-                    std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                    LogDetail<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<End();
                 }else if (resultType == Type::F32) {
                     auto resultValue = llvm::APFloat(static_cast<float>(0));
                     resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                     resultValue = resultValue + rf->get_value();
                     result = new FloatSymValue(resultValue, resultType);
-                    std::cout<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                    LogDetail<<lint->toString()<<"+"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<End();
                 } else {
-                    std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                    LogWarning<<"Adding int and float and not expecting float as a result"<<End();
                     result = new UnknownSymValue(resultType);
                 }
             } break;
             case SymValue::Kind::INT: {
+                LogDetail<<"rhs int"<<End();
                 IntSymValue *rint = static_cast<IntSymValue*>(rhs);
                 result = new IntSymValue(lint->get_value()+rint->get_value(), resultType);
-                std::cout<<lint->toString()<<"+"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+                LogDetail<<lint->toString()<<"+"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<End();
             } break;
             default:
-                std::cout<<"Unable to calculate INT plus "<<toString(rhs->get_kind())<<std::endl;
+                LogDetail<<"Unable to calculate INT plus "<<toString(rhs->get_kind())<<End();
                 result = new UnknownSymValue(resultType);
                 break;
             }
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" plus "<<toString(rhs->get_kind())<<std::endl;
+            LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" plus "<<toString(rhs->get_kind())<<End();
             result = new UnknownSymValue(resultType);
             break;
         }
@@ -554,23 +662,23 @@ void SymbolicEvaluation::And(
         auto l = static_cast<IntSymValue*>(lhs);
         if(l->get_value().isAllOnesValue()) {
             auto result = rhs->copy_cast(resultType);
-            std::cout<<l->toString()<<" is all ones: result = "<<toString(result)<<std::endl;
+            LogDetail<<l->toString()<<" is all ones: result = "<<toString(result)<<End();
             node->AllocateResult(andInst,storagePool.persist(result));
         } else if (l->get_value().getLimitedValue() == 0) {
             auto result = new IntSymValue(0, resultType);
-            std::cout<<l->toString()<<" is all zeros: result = "<<toString(result)<<std::endl;
+            LogDetail<<l->toString()<<" is all zeros: result = "<<toString(result)<<End();
             node->AllocateResult(andInst,storagePool.persist(result));
         } else {
-            std::cout<<l->toString()<<" and ";
+            LogDetail<<l->toString()<<" and ";
             switch(rhs->get_kind()) {
             case SymValue::Kind::INT: {
                 auto r = static_cast<IntSymValue*>(rhs);
-                std::cout<<r->toString()<<" = ";
+                LogDetail<<r->toString()<<" = ";
                 auto result = new IntSymValue(l->get_value() & r->get_value(), resultType);
-                std::cout<<result->toString()<<std::endl;
+                LogDetail<<result->toString()<<End();
             } break;
             default:
-                std::cout<<toString(rhs)<<" is not calculable"<<std::endl;
+                LogDetail<<toString(rhs)<<" is not calculable"<<End();
                 node->AllocateResult(andInst, storagePool.persist(new UnknownSymValue(resultType)));
                 break;
             }
@@ -582,23 +690,23 @@ void SymbolicEvaluation::And(
             auto r = static_cast<IntSymValue*>(rhs);
             if(r->get_value().isAllOnesValue()) {
                 auto result = lhs->copy_cast(resultType);
-                std::cout<<r->toString()<<" is all ones: result = "<<toString(result)<<std::endl;
+                LogDetail<<r->toString()<<" is all ones: result = "<<toString(result)<<End();
                 node->AllocateResult(andInst,storagePool.persist(result));
             } else if (r->get_value().getLimitedValue() == 0) {
                 auto result = new IntSymValue(0, resultType);
-                std::cout<<r->toString()<<" is all zeros: result = "<<toString(result)<<std::endl;
+                LogDetail<<r->toString()<<" is all zeros: result = "<<toString(result)<<End();
                 node->AllocateResult(andInst,storagePool.persist(result));
             } else {
-                std::cout<<toString(lhs)<<" and "<<r->toString()<<" is not calculable"<<std::endl;
+                LogDetail<<toString(lhs)<<" and "<<r->toString()<<" is not calculable"<<End();
                 node->AllocateResult(andInst, storagePool.persist(new UnknownSymValue(resultType)));
             }
         } break;
         default:
-            if(SymComp::EQ(lhs,rhs) == SymComp::Result::TRUE) {
-                std::cout<<toString(lhs)<<" and "<<toString(rhs)<<" are equal"<<std::endl;
+            if(SymComp::EQ(lhs,rhs,node).first == SymComp::Result::TRUE) {
+                LogDetail<<toString(lhs)<<" and "<<toString(rhs)<<" are equal"<<End();
                 node->AllocateResult(andInst, storagePool.persist(lhs->copy_cast(resultType)));
             } else {
-                std::cout<<toString(lhs)<<" and "<<toString(rhs)<<" is not calculable"<<std::endl;
+                LogDetail<<toString(lhs)<<" and "<<toString(rhs)<<" is not calculable"<<End();
                 node->AllocateResult(andInst, storagePool.persist(new UnknownSymValue(resultType)));
             }
         } break;
@@ -611,7 +719,7 @@ void SymbolicEvaluation::Arg(
 ) {
     unsigned int idx = argInst->GetIdx();
     SymValue *result = node->get_frame().get_arg(idx);
-    std::cout<<toString(result)<<" at index "<<idx<<std::endl;
+    LogDetail<<toString(result)<<" at index "<<idx<<End();
 
     node->AllocateResult(
         argInst,
@@ -626,7 +734,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
     SymValue *v = node->GetResult(callInst->GetCallee());
 
     if ( v == nullptr ) {
-        std::cout<<"Attempted to call nullptr"<<std::endl;
+        LogWarning<<"Attempted to call nullptr"<<End();
         if(!callInst->IsVoid()) {
             node->AllocateResult(callInst,storagePool.persist(new UnknownSymValue(*callInst->GetType())));
         }
@@ -660,14 +768,14 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
     case SymValue::Kind::EXTERN: {
         auto ext = static_cast<ExternSymValue*>(v);
         bool evaluable = false;
-        std::cout<<"Calling extern "<<ext->get_name()<<std::endl;
+        LogDetail<<"Calling extern "<<ext->get_name()<<End();
         if(externHasStub(ext->get_name())) {
             evaluable = true;
             runExtern(ext->get_name(), args, node, callInst->GetType(), storagePool);
         } else if(knownSafeExtern(ext->get_name())) {
-            std::cout<<"Not invalidating store"<<std::endl;
+            LogDetail<<"Not invalidating store"<<End();
         } else {
-            std::cout<<"Invalidating store"<<std::endl;
+            LogDetail<<"Invalidating store"<<End();
             //TODO DO INVALIDATE
             //node->get_store().invalidate();
         }
@@ -679,7 +787,7 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Call(
     }
 
     default:
-        std::cout<<"Attempted to call something of unhandled type"<<std::endl;
+        LogWarning<<"Attempted to call something of unhandled type"<<End();
         return std::unordered_set<FlowNode*>();
     }
 }
@@ -693,50 +801,54 @@ void SymbolicEvaluation::Cmp(
     SymComp::Result result;
     std::optional<z3::expr> constraint;
 
-    std::cout<<"lhs: "<<toString(lhs)<<" rhs: "<<toString(rhs)<<std::endl;
+    LogDetail<<"lhs: "<<toString(lhs)<<" rhs: "<<toString(rhs)<<End();
 
     if(lhs == nullptr || rhs == nullptr) {
-        std::cout<<"WARNING: operand nullptr"<<std::endl;
+        LogWarning<<"operand nullptr"<<End();
         return;
     }
 
     switch(c) {
-    case Cond::EQ:
-        std::cout<<"Comparing EQ"<<std::endl;
-        result = SymComp::EQ(lhs, rhs);
-        break;
+    case Cond::EQ: {
+        LogDetail<<"Comparing EQ"<<End();
+        auto [r, constr] = SymComp::EQ(lhs, rhs, node);
+        result = r;
+        constraint = constr;
+    } break;
     
-    case Cond::NE:
-        std::cout<<"Comparing NE"<<std::endl;
-        result = SymComp::NEQ(lhs, rhs);
-        break;
+    case Cond::NE: {
+        LogDetail<<"Comparing NE"<<End();
+        auto [r, constr] = SymComp::NEQ(lhs, rhs, node);
+        result = r;
+        constraint = constr;
+    } break;
     
     case Cond::LT:
-        std::cout<<"Comparing LT"<<std::endl;
+        LogDetail<<"Comparing LT"<<End();
         result = SymComp::LT(lhs, rhs);
         break;
     
     case Cond::GT: {
-        std::cout<<"Comparing GT"<<std::endl;
+        LogDetail<<"Comparing GT"<<End();
         auto [r, constr] = SymComp::GT(lhs, rhs, node);
         result = r;
         constraint = constr;
     } break;
     
     case Cond::LE: {
-        std::cout<<"Comparing LE"<<std::endl;
+        LogDetail<<"Comparing LE"<<End();
         auto [r, constr] = SymComp::LE(lhs, rhs, node);
         result = r;
         constraint = constr;
     } break;
     
     case Cond::GE:
-        std::cout<<"Comparing GE"<<std::endl;
+        LogDetail<<"Comparing GE"<<End();
         result = SymComp::GE(lhs, rhs);
         break;
     
     default:
-        std::cout<<"Comparing "<<(int)c<<std::endl;
+        LogDetail<<"Comparing "<<(int)c<<End();
         result = SymComp::Result::UNKNOWN;
         break;
     }
@@ -752,7 +864,7 @@ void SymbolicEvaluation::Cmp(
                 != 0
             )
             == *constraint;
-        std::cout<<"Adding constraint "<<expr.to_string()<<std::endl;
+        LogDetail<<"Adding constraint "<<expr.to_string()<<End();
         node->AddConstraint(expr);
         
     }
@@ -788,7 +900,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
     SymValue *symCond = node->GetResult(cond);
     if(symCond->get_kind() == SymValue::Kind::BOOL) {
         auto b = static_cast<BoolSymValue*>(symCond);
-        std::cout<<"Condition is bool "<<(b->get_value()?"true":"false")<<std::endl;
+        LogDetail<<"Condition is bool "<<(b->get_value()?"true":"false")<<End();
         Block *block;
         Func *func;
         if(b->get_value()) {
@@ -799,14 +911,14 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
             func = falseFunc;
         }
         if(func->GetName() != node->get_func()->GetName()) {
-            std::cout<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<std::endl;
+            LogTrace<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<End();
         }
-        std::cout<<"Jumping to block "<<block->GetName()<<std::endl;
+        LogTrace<<"Jumping to block "<<block->GetName()<<End();
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
     } else if (symCond->get_kind() == SymValue::Kind::INT) {
         auto i = static_cast<IntSymValue*>(symCond);
-        std::cout<<"Condition is int "<<i->toString()<<std::endl;
+        LogDetail<<"Condition is int "<<i->toString()<<End();
         Block *block;
         Func *func;
         if(i->get_value().getBoolValue()) {
@@ -817,19 +929,20 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
             func = falseFunc;
         }
         if(func->GetName() != node->get_func()->GetName()) {
-            std::cout<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<std::endl;
+            LogTrace<<"Jumping from "<<node->get_func()->GetName()<<" to "<<func->GetName()<<End();
         }
-        std::cout<<"Jumping to block "<<block->GetName()<<std::endl;
+        LogTrace<<"Jumping to block "<<block->GetName()<<End();
         FlowNode *newNode = CreateBlockFlowNode(block->getIterator(), node);
         result.insert(newNode);
     } else if ( symCond->get_kind() == SymValue::Kind::UNKNOWN) {
-        std::cout<<"Branching based on unknown"<<std::endl;
+        LogDetail<<"Branching based on unknown"<<End();
         auto unknown = static_cast<UnknownSymValue*>(symCond);
         auto &c = node->get_context();
         z3::expr trueConstraint = c.bv_const(unknown->get_name().c_str(), bitLength(unknown->get_type())) != 0;
         bool takeTrue, takeFalse;
         z3::solver s(c);
-        node->AssertConstraints(s);
+        node->AssertStateConstraints(s);
+        s.add(node->get_path_constraint());
         s.push();
         s.add(!trueConstraint);
         switch(s.check()) {
@@ -845,7 +958,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         case z3::unknown: takeTrue = true; break;
         }
         if(takeTrue) {
-            std::cout<<"Taking true: "<<trueBlock->GetName()<<" with constraint "<<trueConstraint.to_string()<<std::endl;
+            LogDetail<<"Taking true: "<<trueBlock->GetName()<<" with constraint "<<trueConstraint.to_string()<<End();
             result.insert(
                 CreateBlockFlowNode(
                     trueBlock->getIterator(),
@@ -855,7 +968,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
             );
         }
         if(takeFalse) {
-            std::cout<<"Taking false: "<<falseBlock->GetName()<<" with constraint "<<(!trueConstraint).to_string()<<std::endl;
+            LogDetail<<"Taking false: "<<falseBlock->GetName()<<" with constraint "<<(!trueConstraint).to_string()<<End();
             result.insert(
                 CreateBlockFlowNode(
                     falseBlock->getIterator(),
@@ -866,8 +979,8 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
         }
 
     } else {
-        std::cout<<"Taking both branches"<<std::endl;
-        std::cout<<"Jumping to blocks "<<trueBlock->GetName()<<" and "<<falseBlock->GetName()<<std::endl;
+        LogDetail<<"Taking both branches"<<End();
+        LogTrace<<"Jumping to blocks "<<trueBlock->GetName()<<" and "<<falseBlock->GetName()<<End();
         result.insert(
             CreateBlockFlowNode(trueBlock->getIterator(), node)
         );
@@ -888,7 +1001,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpIndirect(
         auto block = static_cast<BlockRefSymValue*>(target);
         auto iter = FindBlockByName(block->get_name(), prog);
         if(iter == prog->end()->end()) {
-            std::cout<<"Block not found"<<std::endl;
+            LogWarning<<"Block not found"<<End();
             return std::unordered_set<FlowNode*>();
         }
         std::unordered_set<FlowNode*> result;
@@ -896,7 +1009,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpIndirect(
         return result;
     } break;
     default:
-        std::cout<<"Unable to jump to "<<toString(target)<<std::endl;
+        LogWarning<<"Unable to jump to "<<toString(target)<<End();
         return std::unordered_set<FlowNode*>();
     }
 }
@@ -917,16 +1030,16 @@ void SymbolicEvaluation::LeftLogicalShift(
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lhs);
             result = new IntSymValue(l->get_value() << r->get_value(), resultType);
-            std::cout<<l->toString()<<"<<"<<r->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+            LogDetail<<l->toString()<<"<<"<<r->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<End();
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<r->toString()<<std::endl;
+            LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<r->toString()<<End();
             result = new UnknownSymValue(resultType);
             break;
         }
     } break;
     default :
-        std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<toString(rhs->get_kind())<<std::endl;
+        LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted left by "<<toString(rhs->get_kind())<<End();
         result = new UnknownSymValue(resultType);
         break;
     }
@@ -943,18 +1056,19 @@ void SymbolicEvaluation::Load(
     FlowNode *node
 ) {
     SymValue *addr = node->GetResult(loadInst->GetAddr());
-    node->AllocateResult(loadInst,node->get_store().read(addr, loadInst->GetLoadSize(), loadInst->GetType(), loadInst));
+    node->AllocateResult(loadInst,node->get_store().read(addr, loadInst->GetLoadSize(), loadInst->GetType(), node, loadInst));
 }
 
 void SymbolicEvaluation::Mov(
     MovInst *movInst,
     FlowNode *node
 ) {
-    AllocateValue(
+    node->AllocateResult(
         movInst,
-        movInst->GetArg(),
-        movInst->GetType(),
-        node
+        node->CreateSymValue(
+            movInst->GetArg(),
+            movInst->GetType()
+        )
     );
 }
 
@@ -969,16 +1083,16 @@ void SymbolicEvaluation::Mul(
     switch(lhs->get_kind()) {
     case SymValue::Kind::FLOAT: {
         auto l = static_cast<FloatSymValue*>(lhs);
-        std::cout<<"Multiplying float "<<l->toString();
+        LogDetail<<"Multiplying float "<<l->toString();
         switch(rhs->get_kind()) {
         case SymValue::Kind::FLOAT: {
             auto r = static_cast<FloatSymValue*>(rhs);
-            std::cout<<" with float "<<r->toString();
+            LogDetail<<" with float "<<r->toString();
             auto result = new FloatSymValue(
                 l->get_value() * r->get_value(),
                 resultType
             );
-            std::cout<<" to produce "<<result->toString();
+            LogDetail<<" to produce "<<result->toString();
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
@@ -988,23 +1102,23 @@ void SymbolicEvaluation::Mul(
         } break;
         case SymValue::Kind::INT: {
             auto r = static_cast<IntSymValue*>(rhs);
-            std::cout<<" with int "<<r->toString();
+            LogDetail<<" with int "<<r->toString();
             SymValue *result;
             if(resultType == Type::F64) {
                 auto resultValue = llvm::APFloat(static_cast<double>(0));
                 resultValue.convertFromAPInt(r->get_value(), isSigned(r->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                 resultValue = resultValue + l->get_value();
                 result = new FloatSymValue(resultValue, resultType);
-                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+                LogDetail<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
             }else if (resultType == Type::F32) {
                 auto resultValue = llvm::APFloat(static_cast<float>(0));
                 resultValue.convertFromAPInt(r->get_value(), isSigned(r->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                 resultValue = resultValue + l->get_value();
                 result = new FloatSymValue(resultValue, resultType);
-                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+                LogDetail<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
             } else {
-                std::cout<<std::endl;
-                std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                LogDetail<<End();
+                LogWarning<<"Adding int and float and not expecting float as a result"<<End();
                 result = new UnknownSymValue(resultType);
             }
             
@@ -1016,7 +1130,7 @@ void SymbolicEvaluation::Mul(
             );
         } break;
         default: {
-            std::cout<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+            LogDetail<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
@@ -1028,27 +1142,27 @@ void SymbolicEvaluation::Mul(
     } break;
     case SymValue::Kind::INT: {
         auto l = static_cast<IntSymValue*>(lhs);
-        std::cout<<"Multiplying int "<<l->toString();
+        LogDetail<<"Multiplying int "<<l->toString();
         switch(rhs->get_kind()) {
         case SymValue::Kind::FLOAT: {
             auto r = static_cast<FloatSymValue*>(rhs);
-            std::cout<<" with float "<<r->toString();
+            LogDetail<<" with float "<<r->toString();
             SymValue *result;
             if(resultType == Type::F64) {
                 auto resultValue = llvm::APFloat(static_cast<double>(0));
                 resultValue.convertFromAPInt(l->get_value(), isSigned(l->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                 resultValue = resultValue + r->get_value();
                 result = new FloatSymValue(resultValue, resultType);
-                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+                LogDetail<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
             }else if (resultType == Type::F32) {
                 auto resultValue = llvm::APFloat(static_cast<float>(0));
                 resultValue.convertFromAPInt(l->get_value(), isSigned(l->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                 resultValue = resultValue + r->get_value();
                 result = new FloatSymValue(resultValue, resultType);
-                std::cout<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
+                LogDetail<<" to produce "<<static_cast<FloatSymValue*>(result)->toString();
             } else {
-                std::cout<<std::endl;
-                std::cout<<"WARNING: Adding int and float and not expecting float as a result"<<std::endl;
+                LogDetail<<End();
+                LogWarning<<"Adding int and float and not expecting float as a result"<<End();
                 result = new UnknownSymValue(resultType);
             }
             node->AllocateResult(
@@ -1060,12 +1174,12 @@ void SymbolicEvaluation::Mul(
         } break;
         case SymValue::Kind::INT: {
             auto r = static_cast<IntSymValue*>(rhs);
-            std::cout<<" with int "<<r->toString();
+            LogDetail<<" with int "<<r->toString();
             IntSymValue *result = new IntSymValue(
                 l->get_value() * r->get_value(),
                 resultType
             );
-            std::cout<<" to produce "<<result->toString();
+            LogDetail<<" to produce "<<result->toString();
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
@@ -1074,7 +1188,7 @@ void SymbolicEvaluation::Mul(
             );
         } break;
         default: {
-            std::cout<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+            LogDetail<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
             node->AllocateResult(
                 mulInst,
                 storagePool.persist(
@@ -1085,8 +1199,8 @@ void SymbolicEvaluation::Mul(
         }
     } break;
     default:
-        std::cout<<"Multiplying "<<(lhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
-        std::cout<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+        LogDetail<<"Multiplying "<<(lhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
+        LogDetail<<" with "<<(rhs->get_kind()==SymValue::Kind::UNKNOWN?"symbolic":"non-numeric")<<" value";
         node->AllocateResult(
             mulInst,
             storagePool.persist(
@@ -1095,7 +1209,7 @@ void SymbolicEvaluation::Mul(
         );
         break;
     }
-    std::cout<<std::endl;
+    LogDetail<<End();
 }
 
 void SymbolicEvaluation::Rem(
@@ -1109,7 +1223,7 @@ void SymbolicEvaluation::Rem(
         if(lhs->get_kind() == SymValue::Kind::INT && rhs->get_kind() == SymValue::Kind::INT) {
             auto l = static_cast<IntSymValue*>(lhs);
             auto r = static_cast<IntSymValue*>(rhs);
-            std::cout<<l->toString()<<(isSigned(resultType)?" srem ":" urem ")<<r->toString()<<" ";
+            LogDetail<<l->toString()<<(isSigned(resultType)?" srem ":" urem ")<<r->toString()<<" ";
             node->AllocateResult(
                 remInst,
                 storagePool.persist(
@@ -1133,7 +1247,7 @@ void SymbolicEvaluation::Rem(
         if(lhs->get_kind() == SymValue::Kind::FLOAT && rhs->get_kind() == SymValue::Kind::FLOAT) {
             auto l = static_cast<FloatSymValue*>(lhs);
             auto r = static_cast<FloatSymValue*>(rhs);
-            std::cout<<l->toString()<<" frem "<<r->toString()<<" ";
+            LogDetail<<l->toString()<<" frem "<<r->toString()<<" ";
             llvm::APFloat resultValue = l->get_value();
             auto status = resultValue.remainder(r->get_value());
             if(status == llvm::APFloatBase::opOK) {
@@ -1163,7 +1277,7 @@ void SymbolicEvaluation::Rem(
             );
         }
     }
-    std::cout<<toString(*node->GetResult(remInst))<<std::endl;
+    LogDetail<<toString(*node->GetResult(remInst))<<End();
 }
 
 std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
@@ -1171,7 +1285,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
     FlowNode *node
 ) {
     Inst *caller = node->get_frame().get_caller();
-    std::cout<<"Caller: "<<toString(caller)<<std::endl;
+    LogDetail<<"Caller: "<<toString(caller)<<End();
     FlowNode *newNode = CreateReturnFlowNode(node);
     if(newNode == nullptr) {
         SymValue *returnValue = node->GetResult(returnInst->GetValue());
@@ -1179,9 +1293,9 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::Ret(
         finishedNodes.insert({node, returnValue});
         return std::unordered_set<FlowNode*>();
     } else if(!caller->IsVoid()) {
-        std::cout<<"Caller is not void"<<std::endl;
+        LogDetail<<"Caller is not void"<<End();
         SymValue *returnValue = node->GetResult(returnInst->GetValue());
-        std::cout<<"Return value "<<toString(returnValue)<<std::endl;
+        LogDetail<<"Return value "<<toString(returnValue)<<End();
         newNode->AllocateResult(caller, returnValue);
     }
     std::unordered_set<FlowNode*> nodes;
@@ -1205,16 +1319,16 @@ void SymbolicEvaluation::RightArithmeticShift(
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lhs);
             result = new IntSymValue(l->get_value().ashr(r->get_value()), resultType);
-            std::cout<<"Shifted "<<l->toString()<<" right arithmetically by "<<r->toString()<<" to produce "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+            LogDetail<<"Shifted "<<l->toString()<<" right arithmetically by "<<r->toString()<<" to produce "<<static_cast<IntSymValue*>(result)->toString()<<End();
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->toString()<<std::endl;
+            LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->toString()<<End();
             result = new UnknownSymValue(resultType);
             break;
         }
     } break;
     default :
-        std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<toString(rhs->get_kind())<<std::endl;
+        LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<toString(rhs->get_kind())<<End();
         result = new UnknownSymValue(resultType);
         break;
     }
@@ -1242,16 +1356,16 @@ void SymbolicEvaluation::RightLogicalShift(
         case SymValue::Kind::INT: {
             auto l = static_cast<IntSymValue*>(lhs);
             result = new IntSymValue(l->get_value().lshr(r->get_value()), resultType);
-            std::cout<<"Shifted "<<l->toString()<<" right logically by "<<r->toString()<<" to produce "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+            LogDetail<<"Shifted "<<l->toString()<<" right logically by "<<r->toString()<<" to produce "<<static_cast<IntSymValue*>(result)->toString()<<End();
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->toString()<<std::endl;
+            LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<r->toString()<<End();
             result = new UnknownSymValue(resultType);
             break;
         }
     } break;
     default :
-        std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<toString(rhs->get_kind())<<std::endl;
+        LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" shifted right by "<<toString(rhs->get_kind())<<End();
         result = new UnknownSymValue(resultType);
         break;
     }
@@ -1268,7 +1382,7 @@ void SymbolicEvaluation::Set(
     FlowNode *node
 ) {
     auto value = node->GetResult(setInst->GetValue());
-    std::cout<<"Setting "<<toString(setInst->GetReg())<<" to "<<toString(value)<<std::endl;
+    LogDetail<<"Setting "<<toString(setInst->GetReg())<<" to "<<toString(value)<<End();
     node->SetRegister(setInst->GetReg()->GetValue(), value);
 }
 
@@ -1284,12 +1398,12 @@ void SymbolicEvaluation::SExt(
         auto x = static_cast<IntSymValue*>(op);
         auto value = x->get_value().sext(length);
         auto result = new IntSymValue(value, resultType);
-        std::cout<<"Sign extending "<<x->toString()<<" to "<<result->toString()<<std::endl;
+        LogDetail<<"Sign extending "<<x->toString()<<" to "<<result->toString()<<End();
         node->AllocateResult(sExtInst, storagePool.persist(result));
     } break;
     default: {
         auto result = new UnknownSymValue(resultType);
-        std::cout<<"Unable to sign extend a non-integer value"<<std::endl;
+        LogDetail<<"Unable to sign extend a non-integer value"<<End();
     } break;
     }
 }
@@ -1320,19 +1434,19 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Sub(
             case SymValue::Kind::INT: {
                 IntSymValue *rint = static_cast<IntSymValue*>(rhs);
                 result = new StaticPtrSymValue(laddr->get_name(), laddr->get_offset()-rint->get_value(), laddr->get_max(), resultType);
-                std::cout<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<std::endl;
+                LogDetail<<laddr->toString()<<"+"<<rint->toString()<<" = "<<static_cast<StaticPtrSymValue*>(result)->toString()<<End();
             } break;
             case SymValue::Kind::STATICPTR: {
                 auto raddr = static_cast<StaticPtrSymValue*>(rhs);
                 if(raddr->get_name() == laddr->get_name()) {
                     result = new IntSymValue(laddr->get_offset()-raddr->get_offset(), resultType);
                 } else {
-                    std::cout<<"WARNING: Subtracting pointers to different atoms"<<std::endl;
+                    LogWarning<<"Subtracting pointers to different atoms"<<End();
                     result = new UnknownSymValue(resultType);
                 }
             } break;
             default:
-                std::cout<<"WARNING: Subtracting "<<toString(rhs->get_kind())<<" from STATICPTR"<<std::endl;
+                LogWarning<<"Subtracting "<<toString(rhs->get_kind())<<" from STATICPTR"<<End();
                 result = new UnknownSymValue(resultType);
                 break;
             }
@@ -1347,31 +1461,32 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Sub(
                     resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                     resultValue = resultValue - rf->get_value();
                     result = new FloatSymValue(resultValue, resultType);
-                    std::cout<<lint->toString()<<"-"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                    LogDetail<<lint->toString()<<"-"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<End();
                 }else if (resultType == Type::F32) {
                     auto resultValue = llvm::APFloat(static_cast<float>(0));
                     resultValue.convertFromAPInt(lint->get_value(), isSigned(lint->get_type()), llvm::APFloatBase::rmNearestTiesToEven);
                     resultValue = resultValue - rf->get_value();
                     result = new FloatSymValue(resultValue, resultType);
-                    std::cout<<lint->toString()<<"-"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<std::endl;
+                    LogDetail<<lint->toString()<<"-"<<rf->toString()<<" = "<<static_cast<FloatSymValue*>(result)->toString()<<End();
                 } else {
-                    std::cout<<"WARNING: Subtracting float from int and not expecting float as a result"<<std::endl;
+                    LogWarning<<"Subtracting float from int and not expecting float as a result"<<End();
                     result = new UnknownSymValue(resultType);
                 }
             } break;
             case SymValue::Kind::INT: {
                 IntSymValue *rint = static_cast<IntSymValue*>(rhs);
                 result = new IntSymValue(lint->get_value()-rint->get_value(), resultType);
-                std::cout<<lint->toString()<<"-"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<std::endl;
+                LogDetail<<lint->toString()<<"-"<<rint->toString()<<" = "<<static_cast<IntSymValue*>(result)->toString()<<End();
             } break;
             default:
-                std::cout<<"Unable to calculate INT minus "<<toString(rhs->get_kind())<<std::endl;
+                LogDetail<<"Unable to calculate INT minus "<<toString(rhs->get_kind())<<End();
                 result = new UnknownSymValue(resultType);
                 break;
             }
         } break;
         case SymValue::Kind::UNKNOWN: {
             auto lval = static_cast<UnknownSymValue*>(lhs);
+            LogDetail<<"Subtracting from "<<lval->get_name()<<End();
             switch(rhs->get_kind()) {
             case SymValue::Kind::INT: {
                 auto rval = static_cast<IntSymValue*>(rhs);
@@ -1380,13 +1495,25 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Sub(
                 z3::expr l = context.bv_const(lval->get_name().c_str(), bitLength(lval->get_type()));
                 z3::expr r = context.bv_val(rval->get_value().getLimitedValue(), bitLength(rval->get_type()));
                 z3::expr constraint = (x == (l - r));
+                LogDetail<<"Adding constraint"<<End();
+                node->AddConstraint(constraint);
+                LogDetail<<"Added constraint"<<End();
+                result = unknown;
+            } break;
+            case SymValue::Kind::UNKNOWN: {
+                auto rval = static_cast<UnknownSymValue*>(rhs);
+                auto unknown = new UnknownSymValue(resultType);
+                z3::expr x = context.bv_const(unknown->get_name().c_str(), bitLength(resultType));
+                z3::expr l = context.bv_const(lval->get_name().c_str(), bitLength(lval->get_type()));
+                z3::expr r = context.bv_const(rval->get_name().c_str(), bitLength(rval->get_type()));
+                z3::expr constraint = (x == (l - r));
                 node->AddConstraint(constraint);
                 result = unknown;
-            }
+            } break;
             }
         } break;
         default:
-            std::cout<<"Unable to calculate "<<toString(lhs->get_kind())<<" minus "<<toString(rhs->get_kind())<<std::endl;
+            LogDetail<<"Unable to calculate "<<toString(lhs->get_kind())<<" minus "<<toString(rhs->get_kind())<<End();
             result = new UnknownSymValue(resultType);
             break;
         }
@@ -1407,7 +1534,7 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::TCall(
     SymValue *v = node->GetResult(tailCallInst->GetCallee());
 
     if ( v == nullptr || v->get_kind() != SymValue::Kind::FUNCREF ) {
-        std::cout<<"Called something that isn't a func ref"<<std::endl;
+        LogWarning<<"Called something that isn't a func ref"<<End();
         if(!tailCallInst->IsVoid()) {
             node->AllocateResult(tailCallInst,storagePool.persist(new UnknownSymValue(*tailCallInst->GetType())));
         }
@@ -1439,28 +1566,12 @@ void SymbolicEvaluation::Phi(
     PhiInst *phiInst,
     FlowNode *node
 ) {
-    unsigned numPredecessors = phiInst->GetNumIncoming();
-
-    std::vector<Block*> blocks;
-    for(int i = 0; i < numPredecessors; ++i) {
-        blocks.push_back(phiInst->GetBlock(i));
-    }
-
-    Block *block = node->ResolvePhiBlocks(blocks);
-
-    if(block == nullptr) {
-        std::cout<<"Phi resolution failed. Not allocating"<<std::endl;
-        return;
-    }
-
-    AllocateValue(
+    std::cout<<"Running phi"<<std::endl;
+    node->AllocateResult(
         phiInst,
-        phiInst->GetValue(block),
-        phiInst->GetType(),
-        node
+        node->ResolvePhi(phiInst)
     );
-
-    std::cout<<"Allocated "<<toString(*node->GetResult(phiInst))<<std::endl;
+    LogDetail<<"Allocated "<<toString(*node->GetResult(phiInst))<<End();
 }
 
 void SymbolicEvaluation::ZExt(
@@ -1473,11 +1584,11 @@ void SymbolicEvaluation::ZExt(
     case SymValue::Kind::INT: {
         auto op = static_cast<IntSymValue*>(x);
         auto result = new IntSymValue(op->get_value().zext(bitLength(resultType)),resultType);
-        std::cout<<op->toString()<<" zero extended to "<<result->toString()<<std::endl;
+        LogDetail<<op->toString()<<" zero extended to "<<result->toString()<<End();
         node->AllocateResult(zExtInst,storagePool.persist(result));
     } break;
     default:
-        std::cout<<toString(*x)<<" zero extended to unknown symvalue"<<std::endl;
+        LogDetail<<toString(*x)<<" zero extended to unknown symvalue"<<End();
         node->AllocateResult(
             zExtInst,
             storagePool.persist(new UnknownSymValue(resultType))
@@ -1486,104 +1597,13 @@ void SymbolicEvaluation::ZExt(
     }
 }
 
-void SymbolicEvaluation::AllocateValue(
-    Inst *inst,
-    Value *value,
-    Type type,
-    FlowNode *node
-) {
-    SymValue *result;
-    switch(value->GetKind()) {
-    case Value::Kind::GLOBAL: {
-        auto g = static_cast<Global*>(value);
-        switch(g->GetKind()) {
-        case Global::Kind::ATOM: {
-            std::cout<<"Allocating global atom (label) "<<g->GetName()<<std::endl;
-            const Label *label = node->get_store().getLabel(g->GetName());
-            if(label == nullptr) {
-                std::cout<<"WARNING: Attempted to create address symvalue to unknown label"<<std::endl;
-            } else {
-                result = storagePool.persist(new StaticPtrSymValue(
-                    g->GetName(),
-                    llvm::APInt(bitLength(type),label->offset, isSigned(type)),
-                    label->atom->getSize(),
-                    type
-                ));
-            }
-        } break;
-        case Global::Kind::BLOCK:
-            std::cout<<"Alocating global block "<<g->GetName()<<std::endl;
-            result = storagePool.persist(new BlockRefSymValue(g->GetName(), type));
-            break;
-
-        case Global::Kind::EXTERN:
-            std::cout<<"Allocating global extern "<<g->GetName()<<std::endl;
-            result = storagePool.persist(new ExternSymValue(g->GetName(), type));
-            break;
-
-        case Global::Kind::FUNC:
-            std::cout<<"Allocating global func "<<g->GetName()<<std::endl;
-            result = storagePool.persist(new FuncRefSymValue(g->GetName(), type));
-            break;
-        
-        default:
-            std::cout<<"Allocating unknown global "<<g->GetName()<<std::endl;
-            result = storagePool.persist(new UnknownSymValue(type));
-            break;
-        }
-    } break;
-
-    case Value::Kind::INST: {
-        std::cout<<"Allocating inst"<<std::endl;
-        auto i = static_cast<Inst*>(value);
-        result = node->GetResult(i);
-    } break;
-
-    case Value::Kind::CONST: {
-        Constant *c = static_cast<Constant*>(value);
-        switch(c->GetKind()) {
-        case Constant::Kind::INT: {
-            ConstantInt *ci = static_cast<ConstantInt*>(c);
-            result = new IntSymValue(ci->GetValue(), type);
-            if(!isIntType(type)) { std::cout<<"Allocating constant int of non-int type"<<std::endl; }
-            storagePool.persist(result);
-            std::cout<<"Allocating int "<<ci->GetValue()<<std::endl;
-        } break;
-        
-        case Constant::Kind::FLOAT: {
-            ConstantFloat *cf = static_cast<ConstantFloat*>(c);
-            result = new FloatSymValue(cf->GetValue(), type);
-            if(isIntType(type)) { std::cout<<"Allocating constant float of non-float type"<<std::endl; }
-            storagePool.persist(result);
-            std::cout<<"Allocating float "<<cf->GetValue()<<std::endl;
-        } break;
-
-        default:
-            result = new UnknownSymValue(type);
-            storagePool.persist(result);
-            std::cout<<"Allocating const"<<std::endl;
-            break;
-        }
-    } break;
-
-    case Value::Kind::EXPR: {
-        result = new UnknownSymValue(type);
-        storagePool.persist(result);
-        std::cout<<"Allocating expr"<<std::endl;
-    }
-    }
-
-    std::cout<<"Allocating "<<toString(inst)<<" := "<<toString(result)<<std::endl;
-    node->AllocateResult(inst, result);
-}
-
 void Z3Test()
 {
-    std::cout<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<"Z3 TEST START"<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<std::endl;
+    LogFlow<<End();
+    LogFlow<<"----------------------------------------"<<End();
+    LogFlow<<"Z3 TEST START"<<End();
+    LogFlow<<"----------------------------------------"<<End();
+    LogFlow<<End();
 
     z3::context c;
 
@@ -1594,12 +1614,12 @@ void Z3Test()
     z3::solver s(c);
 
     s.add(!conjecture);
-    std::cout<<s<<std::endl;
-    std::cout<<s.to_smt2()<<std::endl;
+    LogDetail<<s<<End();
+    LogDetail<<s.to_smt2()<<End();
     switch(s.check()) {
-    case z3::unsat: std::cout<<"De-Morgan is valid. Z3 is working"<<std::endl; break;
-    case z3::sat: std::cout<<"De-Morgan is not valid. Z3 is not working"<<std::endl; break;
-    case z3::unknown: std::cout<<"Validity of De-Morgan is unknown. Z3 is not working"<<std::endl; break;
+    case z3::unsat: LogFlow<<"De-Morgan is valid. Z3 is working"<<End(); break;
+    case z3::sat: LogFlow<<"De-Morgan is not valid. Z3 is not working"<<End(); break;
+    case z3::unknown: LogFlow<<"Validity of De-Morgan is unknown. Z3 is not working"<<End(); break;
     }
 
     z3::expr a1 = c.bool_const("a");
@@ -1607,17 +1627,17 @@ void Z3Test()
     z3::expr assertion = a1 != a2;
     z3::solver s1(c);
     s1.add(assertion);
-    std::cout<<s1<<std::endl;
-    std::cout<<s1.to_smt2()<<std::endl;
+    LogDetail<<s1<<End();
+    LogDetail<<s1.to_smt2()<<End();
     switch(s1.check()) {
-    case z3::unsat: std::cout<<"Equal names mean equal values"<<std::endl; break;
-    case z3::sat: std::cout<<"Equal names do not mean equal values"<<std::endl; break;
-    case z3::unknown: std::cout<<"Equal names may or may not mean equal values"<<std::endl; break;
+    case z3::unsat: LogDetail<<"Equal names mean equal values"<<End(); break;
+    case z3::sat: LogDetail<<"Equal names do not mean equal values"<<End(); break;
+    case z3::unknown: LogDetail<<"Equal names may or may not mean equal values"<<End(); break;
     }
 
-    std::cout<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<"Z3 TEST END"<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<std::endl;
+    LogDetail<<End();
+    LogDetail<<"----------------------------------------"<<End();
+    LogDetail<<"Z3 TEST END"<<End();
+    LogDetail<<"----------------------------------------"<<End();
+    LogDetail<<End();
 }

@@ -27,10 +27,13 @@ struct SymByteRef {
     unsigned byte = 0;
 };
 
+class FlowNode;
+
 class DataStore {
 public:
     DataStore(SymExPool &pool): storagePool(pool) {}
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) = 0;
+    virtual ~DataStore() = default;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) = 0;
     virtual void write(SymValue *addr, SymValue *value, Inst *inst) = 0;
     virtual void invalidate(MappedAtom &startPoint, Inst *inst) = 0;
     virtual const Label *getLabel(std::string_view name) const = 0;
@@ -91,7 +94,8 @@ struct DataSegmentInfo {
 class BaseStore: public DataStore {
 public:
     BaseStore(Prog &prog, SymExPool &storagePool);
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
+    virtual ~BaseStore() override = default;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
     virtual void write(SymValue *addr, SymValue *value, Inst *inst) override;
     virtual void invalidate(MappedAtom &startPoint, Inst *inst) override;
     virtual const Label *getLabel(std::string_view name) const override;
@@ -111,11 +115,12 @@ private:
 class LogStore: public DataStore {
 public:
     LogStore(DataStore &store, SymExPool &pool);
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
+    virtual ~LogStore() override = default;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
     virtual void write(SymValue *addr, SymValue *value, Inst *inst) override;
     virtual void invalidate(MappedAtom &startPoint, Inst *inst) override;
     virtual const Label *getLabel(std::string_view name) const override;
-    std::string_view addHeapAtom(unsigned size);
+    virtual std::string_view addHeapAtom(unsigned size);
     virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
     // virtual std::vector<MappedAtom*> modelPointers(std::string_view name) override;
 
@@ -131,5 +136,18 @@ private:
     std::vector<std::unique_ptr<Action>> actions;
 
     std::unordered_map<std::string, std::unique_ptr<MappedAtom>> heap;
-    std::string nextHeapName;    
+    std::string nextHeapName;
+};
+
+class JoinStore: public LogStore {
+    JoinStore(DataStore &leftStore, DataStore &rightStore, SymExPool &pool);
+    virtual ~JoinStore() override = default;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
+    virtual void write(SymValue *addr, SymValue *value, Inst *inst) override;
+    virtual void invalidate(MappedAtom &startPoint, Inst *inst) override;
+    virtual const Label *getLabel(std::string_view name) const override;
+    virtual std::string_view addHeapAtom(unsigned size) override;
+    virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
+
+    virtual std::vector<Action*> getFullLog() const override;
 };

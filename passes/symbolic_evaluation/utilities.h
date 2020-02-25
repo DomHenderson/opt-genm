@@ -7,6 +7,7 @@
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/ilist.h>
 
+#include "core/atom.h"
 #include "core/constant.h"
 #include "core/inst.h"
 #include "flownode.h"
@@ -44,3 +45,88 @@ bool knownSafeExtern(std::string_view name);
 void PrintCodeInfo(Prog *prog);
 
 void PrintDataInfo(Prog *prog);
+
+class End {
+public:
+    End(bool flush = false): flush(flush) {}
+    bool flush;
+};
+
+class Logger {
+public:
+    Logger(unsigned level): level(level) {}
+
+    static void SetCutoff(unsigned n) {
+        cutoff = n;
+    }
+
+    template<typename T>
+    Logger &operator<<(T t) {
+        if(level <= cutoff) {
+            std::cout<<t;
+        }
+        return *this;
+    }
+
+    Logger &operator<<(End e) {
+        if(level <= cutoff) {
+            if(e.flush) {
+                std::cout<<std::endl;
+            } else {
+                std::cout<<"\n";
+            }
+        }
+        return *this;
+    }
+protected:
+    static unsigned cutoff;
+    unsigned level;
+};
+
+class HeaderLogger: public Logger {
+public:
+    HeaderLogger(unsigned level, std::string header): Logger(level), header(header) {}
+
+    template<typename T>
+    HeaderLogger &operator<<(T t) {
+        if(level <= cutoff) {
+            if(!printedHeader) {
+                std::cout<<header;
+                printedHeader = true;
+            }
+            std::cout<<t;
+        }
+        return *this;
+    }
+
+    HeaderLogger &operator<<(End e) {
+        if(level <= cutoff) {
+            if(e.flush) {
+                std::cout<<std::endl;
+            } else {
+                std::cout<<"\n";
+            }
+            printedHeader = false;
+        }
+        return *this;
+    }
+private:
+    std::string header;
+    bool printedHeader = false;
+};
+
+extern Logger Log;
+extern HeaderLogger LogError;
+extern HeaderLogger LogWarning;
+extern Logger LogFlow;
+extern Logger LogTrace;
+extern Logger LogDetail;
+
+
+/*
+LOG LEVELS
+0 Pass information
+5 Program flow + errors
+10 Running inst
+20 Details
+*/

@@ -134,3 +134,21 @@ UnknownSymValue::UnknownSymValue(
     name = "x" + std::to_string(previousIndex);
     std::cout<<"Created unknown sym value "<<name<<std::endl;
 }
+
+CondSymValue::CondSymValue(
+    SymValue *trueValue,
+    SymValue *falseValue,
+    z3::expr condition
+) :
+    SymValue(trueValue->get_type()),
+    trueValue(trueValue),
+    falseValue(falseValue),
+    condition(condition)
+{
+    if(trueValue->get_type() != falseValue->get_type()) {
+        std::cout<<"true value and false value should be of the same type"<<std::endl;
+        std::cout<<"  true type: "<<toString(trueValue->get_type())<<std::endl;
+        std::cout<<"  false type: "<<toString(falseValue->get_type())<<std::endl;
+        assert(trueValue->get_type() == falseValue->get_type());
+    }
+}

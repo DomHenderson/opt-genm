@@ -26,7 +26,7 @@ public:
     using Block_iterator = llvm::ilist<Block>::iterator;
     using Func_iterator = llvm::ilist<Func>::iterator;
 
-    FlowNode(Frame &frame, SymExPool &pool, z3::context &context);
+    FlowNode(Frame &frame, SymExPool &pool, z3::context &context, z3::expr pathConstraint);
     virtual ~FlowNode() {}
 
     virtual SuccessorFlowNode *CreateBlockNode(
@@ -44,35 +44,40 @@ public:
         std::vector<SymValue*> args
     );
 
-    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) = 0;
+    virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) = 0;
 
+    virtual SymValue *CreateSymValue(Value *value, Type type);
     virtual void AllocateResult(Inst *inst, SymValue *value);
     virtual SymValue *GetResult(Inst *inst) = 0;
 
-    virtual LogStore &get_store() = 0;
+    virtual LogStore &get_store() const = 0;
 
     virtual std::string_view AllocateHeapBlock(unsigned size) = 0;
 
-    virtual Inst_iterator get_starting_inst() = 0;
-    virtual Block_iterator get_block() = 0;
-    virtual Func_iterator get_func() = 0;
+    virtual Inst_iterator get_starting_inst() const = 0;
+    virtual Block_iterator get_block() const = 0;
+    virtual Func_iterator get_func() const = 0;
 
-    virtual Frame &get_frame();
+    virtual Frame &get_frame() const;
 
-    virtual z3::context &get_context();
+    virtual z3::context &get_context() const;
 
-    virtual std::string get_name() = 0;
+    virtual z3::expr get_path_constraint() const;
+
+    virtual std::string get_name() const = 0;
 
     virtual SymValue *GetRegister(ConstantReg::Kind reg);
     virtual void SetRegister(ConstantReg::Kind reg, SymValue* value);
 
     virtual void AddConstraint(z3::expr constraint);
-    virtual void AssertConstraints(z3::solver &solver) =0;
-    virtual void AssertNegativeConstraints(z3::solver &solver) =0;
+    virtual void AssertStateConstraints(z3::solver &solver) const =0;
 protected:
+    virtual SymValue *TryLocalPhiResolution(PhiInst *phiInst);
+
     std::unordered_map<Inst*,unsigned> vreg_allocs;
     std::vector<SymValue*> values;
-    std::unordered_map<ConstantReg::Kind,SymValue*> registers; 
+    std::unordered_map<ConstantReg::Kind,SymValue*> registers;
+    z3::expr pathConstraint;
     std::vector<z3::expr> constraints;
     Frame &currentFrame;
     SymExPool &pool;
@@ -81,32 +86,69 @@ protected:
 
 class SuccessorFlowNode : public FlowNode {
 public:
-    SuccessorFlowNode(Inst_iterator startingInst, Frame &frame, FlowNode &previous, SymExPool &pool, z3::context &context);
+    SuccessorFlowNode(
+        Inst_iterator startingInst,
+        Frame &frame,
+        FlowNode &previous,
+        SymExPool &pool,
+        z3::context &context,
+        z3::expr pathConstraint
+    );
     ~SuccessorFlowNode() = default;
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
 
-    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) override;
+    virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) override;
 
     virtual SymValue *GetResult(Inst *inst) override;
 
-    virtual LogStore &get_store() override;
+    virtual LogStore &get_store() const override;
 
     virtual std::string_view AllocateHeapBlock(unsigned size) override;
 
-    virtual Inst_iterator get_starting_inst() override;
-    virtual Block_iterator get_block() override;
-    virtual Func_iterator get_func() override;
+    virtual Inst_iterator get_starting_inst() const override;
+    virtual Block_iterator get_block() const override;
+    virtual Func_iterator get_func() const override;
 
-    virtual std::string get_name() override;
+    virtual std::string get_name() const override;
 
-    virtual void AssertConstraints(z3::solver &solver) override;
-    virtual void AssertNegativeConstraints(z3::solver &solver) override;
+    virtual void AssertStateConstraints(z3::solver &solver) const override;
 private:
     Inst_iterator startingInst;
 
     FlowNode &previousNode;
 
+    std::unique_ptr<LogStore> dataStore;
+};
+
+class JoinFlowNode: public FlowNode {
+public:
+    JoinFlowNode(
+        Inst_iterator startInst,
+        Frame &frame,
+        FlowNode &previous1,
+        FlowNode &previous2,
+        SymExPool &pool,
+        z3::context &context
+    );
+    ~JoinFlowNode() = default;
+
+    virtual SuccessorFlowNode *CreateReturnNode() override;
+    virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) override;
+    virtual SymValue *GetResult(Inst *inst) override;
+    virtual LogStore &get_store() const override;
+    virtual std::string_view AllocateHeapBlock(unsigned size) override;
+
+    virtual Inst_iterator get_starting_inst() const override;
+    virtual Block_iterator get_block() const override;
+    virtual Func_iterator get_func() const override;
+
+    virtual std::string get_name() const override;
+
+    virtual void AssertStateConstraints(z3::solver &solver) const override;
+private:
+    Inst_iterator startingInst;
+    FlowNode *previous[2];
     std::unique_ptr<LogStore> dataStore;
 };
 
@@ -117,25 +159,24 @@ public:
 
     virtual SuccessorFlowNode *CreateReturnNode() override;
 
-    virtual Block *ResolvePhiBlocks(std::vector<Block*> blocks, bool includeSelf = false) override;
+    virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) override;
 
     virtual SymValue *GetResult(Inst *inst) override;
 
-    virtual LogStore &get_store() override;
+    virtual LogStore &get_store() const override;
 
     virtual std::string_view AllocateHeapBlock(unsigned size) override;
 
-    virtual Inst_iterator get_starting_inst() override;
-    virtual Block_iterator get_block() override;
-    virtual Func_iterator get_func() override;
+    virtual Inst_iterator get_starting_inst() const override;
+    virtual Block_iterator get_block() const override;
+    virtual Func_iterator get_func() const override;
 
-    virtual std::string get_name() override;
+    virtual std::string get_name() const override;
 
-    virtual void AssertConstraints(z3::solver &solver) override;
-    virtual void AssertNegativeConstraints(z3::solver &solver) override;
+    virtual void AssertStateConstraints(z3::solver &solver) const override;
 private:
     Func &func;
     
     BaseStore baseStore;
-    LogStore dataStore;
+    std::unique_ptr<LogStore> dataStore;
 };

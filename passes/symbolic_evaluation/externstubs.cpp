@@ -34,7 +34,7 @@ std::optional<SymValue*> strlenStub(std::vector<SymValue*> args, FlowNode* node,
                 addr->get_max(),
                 addr->get_type()
             ));
-            auto read = node->get_store().read(i, 1, Type::U8);
+            auto read = node->get_store().read(i, 1, Type::U8, node);
             if(read == nullptr) {
                 std::cout<<"WARNING: Read returned nullptr"<<std::endl;
                 return std::nullopt;
