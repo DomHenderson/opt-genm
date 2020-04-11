@@ -70,7 +70,7 @@ public:
 
     Logger &operator<<(End e) {
         if(level <= cutoff) {
-            if(e.flush) {
+            if(e.flush || overrideFlush) {
                 std::cout<<std::endl;
             } else {
                 std::cout<<"\n";
@@ -81,6 +81,7 @@ public:
 protected:
     static unsigned cutoff;
     unsigned level;
+    constexpr static bool overrideFlush = true;
 };
 
 class HeaderLogger: public Logger {
@@ -101,7 +102,7 @@ public:
 
     HeaderLogger &operator<<(End e) {
         if(level <= cutoff) {
-            if(e.flush) {
+            if(e.flush || overrideFlush) {
                 std::cout<<std::endl;
             } else {
                 std::cout<<"\n";

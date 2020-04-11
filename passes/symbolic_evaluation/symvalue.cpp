@@ -132,7 +132,7 @@ UnknownSymValue::UnknownSymValue(
     ++previousIndex;
     assert(previousIndex != 0);
     name = "x" + std::to_string(previousIndex);
-    std::cout<<"Created unknown sym value "<<name<<std::endl;
+    LogTrace<<"Created unknown sym value "<<name<<End();
 }
 
 CondSymValue::CondSymValue(
@@ -146,9 +146,10 @@ CondSymValue::CondSymValue(
     condition(condition)
 {
     if(trueValue->get_type() != falseValue->get_type()) {
-        std::cout<<"true value and false value should be of the same type"<<std::endl;
-        std::cout<<"  true type: "<<toString(trueValue->get_type())<<std::endl;
-        std::cout<<"  false type: "<<toString(falseValue->get_type())<<std::endl;
+        LogError
+            <<"true value and false value should be of the same type\n"
+            <<"  true type: "<<toString(trueValue->get_type())<<"\n"
+            <<"  false type: "<<toString(falseValue->get_type())<<End(true);
         assert(trueValue->get_type() == falseValue->get_type());
     }
 }

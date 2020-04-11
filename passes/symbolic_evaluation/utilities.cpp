@@ -41,12 +41,12 @@ llvm::ilist<Block>::iterator FindBlockByName(
     for(auto &func: *prog) {
         for(auto &block: func) {
             if(block.GetName() == name) {
-                std::cout<<"Found "<<name<<std::endl;
+                LogTrace<<"Found "<<name<<End();
                 return block.getIterator();
             }
         }
     }
-    std::cout<<"Failed to find block "<<name<<std::endl;
+    LogError<<"Failed to find block "<<name<<End();
     return prog->end()->end();
 }
 
@@ -62,9 +62,9 @@ llvm::ilist<Func>::iterator FindFuncByName(
         }
     );
     if(result == prog->end()) {
-        std::cout<<"Failed to find function "<<name<<std::endl;
+        LogError<<"Failed to find function "<<name<<End();
     } else {
-        std::cout<<"Found "<<name<<std::endl;
+        LogTrace<<"Found "<<name<<End();
     }
     return result;
 }
@@ -280,13 +280,22 @@ std::string toString(SymValue &value)
     } break;
     case SymValue::Kind::CONDITIONAL: {
         auto condValue = static_cast<CondSymValue&>(value);
-        stream<<"ite("
-            <<condValue.get_condition().to_string()
-            <<", "
-            <<toString(condValue.if_true())
-            <<", "
-            <<toString(condValue.if_false())
-            <<")";
+        constexpr bool printFullCondition = false;
+        if(printFullCondition) {
+            stream<<"ite("
+                <<condValue.get_condition().to_string()
+                <<", "
+                <<toString(condValue.if_true())
+                <<", "
+                <<toString(condValue.if_false())
+                <<")";
+        } else {
+            stream<<"["
+                <<toString(condValue.if_true())
+                <<" or "
+                <<toString(condValue.if_false())
+                <<"]";
+        }
     } break;
     case SymValue::Kind::EXTERN: {
         auto ext = static_cast<ExternSymValue&>(value);
@@ -485,66 +494,66 @@ void PrintCodeInfo(Prog *prog)
 
 void PrintDataInfo(Prog *prog)
 {
-    std::cout<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<"DATA START"<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<std::endl;
+    LogTrace<<End();
+    LogTrace<<"----------------------------------------"<<End();
+    LogTrace<<"DATA START"<<End();
+    LogTrace<<"----------------------------------------"<<End();
+    LogTrace<<End();
     for(auto &data: prog->data()) {
-        std::cout<<"Start data segment: "<<data.GetName()<<std::endl;
+        LogTrace<<"Start data segment: "<<data.GetName()<<End();
         for(auto &atom: data) {
-            std::cout<<"Start: "<<atom.GetName()<<std::endl;
+            LogTrace<<"Start: "<<atom.GetName()<<End();
             for (auto &item: atom) {
                 switch(item->GetKind()) {
                 case Item::Kind::ALIGN:
-                    std::cout<<"Align "<<item->GetAlign()<<std::endl;
+                    LogTrace<<"Align "<<item->GetAlign()<<End();
                     break;
                 
                 case Item::Kind::END:
-                    std::cout<<"End"<<std::endl;
+                    LogTrace<<"End"<<End();
                     break;
                 
                 case Item::Kind::FLOAT64:
-                    std::cout<<"Float64 "<<item->GetFloat64()<<std::endl;
+                    LogTrace<<"Float64 "<<item->GetFloat64()<<End();
                     break;
                 
                 case Item::Kind::INT16:
-                    std::cout<<"Int16 "<<item->GetInt16()<<std::endl;
+                    LogTrace<<"Int16 "<<item->GetInt16()<<End();
                     break;
 
                 case Item::Kind::INT32:
-                    std::cout<<"Int32 "<<item->GetInt32()<<std::endl;
+                    LogTrace<<"Int32 "<<item->GetInt32()<<End();
                     break;
                 
                 case Item::Kind::INT64:
-                    std::cout<<"Int64 "<<item->GetInt64()<<std::endl;
+                    LogTrace<<"Int64 "<<item->GetInt64()<<End();
                     break;
                 
                 case Item::Kind::INT8:
-                    std::cout<<"Int8 "<<item->GetInt8()<<std::endl;
+                    LogTrace<<"Int8 "<<item->GetInt8()<<End();
                     break;
                 
                 case Item::Kind::SPACE:
-                    std::cout<<"Space "<<item->GetSpace()<<std::endl;
+                    LogTrace<<"Space "<<item->GetSpace()<<End();
                     break;
                 
                 case Item::Kind::STRING:
-                    std::cout<<"String "<<static_cast<std::string>(item->GetString())<<std::endl;
+                    LogTrace<<"String "<<static_cast<std::string>(item->GetString())<<End();
                     break;
                 
                 case Item::Kind::SYMBOL:
-                    std::cout<<"Symbol "<<item->GetSymbol()->GetName()<<std::endl;
+                    LogTrace<<"Symbol "<<item->GetSymbol()->GetName()<<End();
                     break;
                 }
             }
-            std::cout<<"End atom"<<std::endl;
+            LogTrace<<"End atom"<<End();
         }
     }
-    std::cout<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<"DATA END"<<std::endl;
-    std::cout<<"----------------------------------------"<<std::endl;
-    std::cout<<std::endl;
+    LogTrace<<End();
+    LogTrace<<"----------------------------------------"<<End();
+    LogTrace<<"DATA END"<<End();
+    LogTrace<<"----------------------------------------"<<End();
+    LogTrace<<End();
 }
 
 Logger Log = Logger(0);
