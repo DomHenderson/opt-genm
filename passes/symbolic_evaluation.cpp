@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -38,6 +39,8 @@
 
 constexpr std::string_view start_function = "main";
 
+constexpr bool timed = false;
+
 void Z3Test();
 
 //-----------------------------------------------------------------------------
@@ -53,52 +56,74 @@ const char *SymbolicEvaluation::GetPassName() const
 
 void SymbolicEvaluation::Run(Prog *program)
 {
-    Log<<"Running symbolic execution"<<End();
-    z3::set_param("parallel.enable", true);
-    Z3Test();
+    if(timed) {
+        auto analysisStart = std::chrono::high_resolution_clock::now();
+        z3::set_param("parallel.enable", true);
 
-    PrintCodeInfo(program);
+        // ---------------------------------------------------------------
+        prog = program;
+        frontier.insert(CreateRootNode());
 
-    // ---------------------------------------------------------------
-    prog = program;
-    LogFlow<<"Starting"<<End();
-    frontier.insert(CreateRootNode());
-    LogFlow<<"Done"<<End();
+        while(!frontier.empty() && count < limit) {
+            JoinNodes();
+            FlowNode *node = ChooseNextNode();
+            frontier.erase(node);
+            StepNode(node);
+        }
 
-    LogFlow<<End();
-    LogFlow<<"----------------------------------------"<<End();
-    LogFlow<<"EXECUTION START"<<End();
-    LogFlow<<"----------------------------------------"<<End();
-    LogFlow<<End();
+        auto analysisEnd = std::chrono::high_resolution_clock::now();
+        auto transformationStart = std::chrono::high_resolution_clock::now();
 
-    while(!frontier.empty() && count < limit) {
-        std::cout<<"Joining"<<std::endl;
-        JoinNodes();
-        std::cout<<"Choosing"<<std::endl;
-        FlowNode *node = ChooseNextNode();
-        std::cout<<"Erasing"<<std::endl;
-        frontier.erase(node);
-        std::cout<<"Printing"<<std::endl;
-        LogFlow<<"Stepping node "<<node->get_name()<<End();
-        std::cout<<"Stepping"<<std::endl;
-        StepNode(node);
-        std::cout<<"Looping"<<std::endl;
+        if(frontier.empty()) {
+            //Optimise();
+            Rewrite();
+        }
+
+        auto transformationEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> analysisTime = analysisEnd-analysisStart;
+        std::chrono::duration<double, std::milli> transformationTime = transformationEnd-transformationStart;
+        std::cout<<analysisTime.count()<<", "<<transformationTime.count();
+    } else {
+        Log<<"Running symbolic execution"<<End();
+        z3::set_param("parallel.enable", true);
+        Z3Test();
+
+        PrintCodeInfo(program);
+
+        // ---------------------------------------------------------------
+        prog = program;
+        LogFlow<<"Starting"<<End();
+        frontier.insert(CreateRootNode());
+        LogFlow<<"Done"<<End();
+
+        LogFlow<<End();
+        LogFlow<<"----------------------------------------"<<End();
+        LogFlow<<"EXECUTION START"<<End();
+        LogFlow<<"----------------------------------------"<<End();
+        LogFlow<<End();
+
+        while(!frontier.empty() && count < limit) {
+            JoinNodes();
+            FlowNode *node = ChooseNextNode();
+            frontier.erase(node);
+            LogFlow<<"Stepping node "<<node->get_name()<<End();
+            StepNode(node);
+        }
+
+        LogFlow<<(frontier.empty() ? "Finished" : "Finished early")<<End();
+
+        LogFlow<<End();
+        LogFlow<<"----------------------------------------"<<End();
+        LogFlow<<"EXECUTION END"<<End();
+        LogFlow<<"----------------------------------------"<<End();
+        LogFlow<<End();
+
+        if(frontier.empty()) {
+            //Optimise();
+            Rewrite();
+        }
+        Log<<"Finished"<<End();
     }
-
-    LogFlow<<(frontier.empty() ? "Finished" : "Finished early")<<End();
-
-    LogFlow<<End();
-    LogFlow<<"----------------------------------------"<<End();
-    LogFlow<<"EXECUTION END"<<End();
-    LogFlow<<"----------------------------------------"<<End();
-    LogFlow<<End();
-
-    if(frontier.empty()) {
-        //Optimise();
-        Rewrite();
-    }
-    Log<<"Finished"<<End();
-    std::cout<<std::endl;
 }
 
 void SymbolicEvaluation::JoinNodes()
