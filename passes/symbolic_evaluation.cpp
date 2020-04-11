@@ -996,10 +996,12 @@ void SymbolicEvaluation::Cmp(
         constraint = constr;
     } break;
     
-    case Cond::LT:
+    case Cond::LT: {
         LogDetail<<"Comparing LT"<<End();
-        result = SymComp::LT(lhs, rhs);
-        break;
+        auto [r, constr] = SymComp::LT(lhs, rhs, node);
+        result = r;
+        constraint = constr;
+    } break;
     
     case Cond::GT: {
         LogDetail<<"Comparing GT"<<End();
@@ -1015,10 +1017,12 @@ void SymbolicEvaluation::Cmp(
         constraint = constr;
     } break;
     
-    case Cond::GE:
+    case Cond::GE: {
         LogDetail<<"Comparing GE"<<End();
-        result = SymComp::GE(lhs, rhs);
-        break;
+        auto [r, constr] = SymComp::GE(lhs, rhs, node);
+        result = r;
+        constraint = constr;
+    } break;
     
     default:
         LogDetail<<"Comparing "<<(int)c<<End();
