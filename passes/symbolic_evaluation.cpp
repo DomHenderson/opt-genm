@@ -103,105 +103,255 @@ void SymbolicEvaluation::Run(Prog *program)
 
 void SymbolicEvaluation::JoinNodes()
 {
-    LogTrace<<"Running join pass"<<End(true);
-    std::unordered_map<Inst*, FlowNode*> map;
-    LogTrace<<"Frontier contains"<<End();
-    for(auto& node: frontier) {
-        LogTrace<<"  "<<node->get_name()<<End();
-    }
-
-    while(!frontier.empty()) {
-        auto node = *frontier.begin();
-        frontier.erase(node);
-
-        Inst &start = *node->get_starting_inst();
-        auto iter = map.find(&start);
-        if(iter == map.end()) {
-            map[&start] = node;
-        } else {
-            LogTrace<<"Joining "<<node->get_name()<<" and "<<map[&start]->get_name()<<End(true);
-            JoinFlowNode *joinNode = storagePool.persist(
-                new JoinFlowNode(
-                    node->get_starting_inst(),
-                    node->get_frame(), //TODO join frames or only join on nodes with same frame
-                    *node,
-                    *map[&start],
-                    storagePool,
-                    context
-                )
-            );
-            frontier.insert(joinNode);
-            map.erase(iter);
+    switch(joinStrategy) {
+    case JoinStrategy::NEVER:
+        LogTrace<<"Skipping join pass"<<End(true);
+        break;
+    case JoinStrategy::ALWAYS:
+        LogTrace<<"Running join pass"<<End(true);
+        std::unordered_map<Inst*, FlowNode*> map;
+        LogTrace<<"Frontier contains"<<End();
+        for(auto& node: frontier) {
+            LogTrace<<"  "<<node->get_name()<<End();
         }
+
+        while(!frontier.empty()) {
+            auto node = *frontier.begin();
+            frontier.erase(node);
+
+            Inst &start = *node->get_starting_inst();
+            auto iter = map.find(&start);
+            if(iter == map.end()) {
+                map[&start] = node;
+            } else {
+                LogTrace<<"Joining "<<node->get_name()<<" and "<<map[&start]->get_name()<<End(true);
+                JoinFlowNode *joinNode = storagePool.persist(
+                    new JoinFlowNode(
+                        node->get_starting_inst(),
+                        node->get_frame(), //TODO join frames or only join on nodes with same frame
+                        *node,
+                        *map[&start],
+                        storagePool,
+                        context
+                    )
+                );
+                frontier.insert(joinNode);
+                map.erase(iter);
+            }
+        }
+        for(auto& [inst, node]: map) {
+            LogTrace<<"Inserting "<<node->get_name()<<End();
+            frontier.insert(node);
+        }
+        LogTrace<<"Finished join pass"<<End(true);
     }
-    for(auto& [inst, node]: map) {
-        LogTrace<<"Inserting "<<node->get_name()<<End();
-        frontier.insert(node);
-    }
-    LogTrace<<"Finished join pass"<<End(true);
 }
 
 FlowNode *SymbolicEvaluation::ChooseNextNode()
 {
-    if(frontier.empty()) {
-        LogError<<"Attempted to choose node from empty frontier"<<End();
-        return nullptr;
-    }
+    switch(chooseStrategy) {
+    case ChooseStrategy::NAIVE:
+        LogTrace<<"Running naive choose"<<End();
+        return *frontier.begin();
+    case ChooseStrategy::OPTIMAL: {
+        LogTrace<<"Running optimal choose"<<End();
 
-    auto evaluate = [](auto node) {
-        auto name = node->get_block()->GetName();
-        if(name == ".START") {
-            return 0;
-        } else if (name == ".LOOP_HEADER") {
-            return 1;
-        } else if (name == ".LOOP_START") {
-            return 2;
-        } else if (name == ".LOOP_END") {
-            return 3;
-        } else if (name == ".BAD_RET") {
-            return 4;
-        } else if (name == ".GOOD_RET") {
-            return 5;
+        LogTrace<<"Frontier: "<<End();
+        for(auto& node: frontier) {
+            LogTrace<<"    "<<node->get_name()<<End();
+        }
+
+        if(frontier.size() == 1) {
+            LogTrace<<"Only 1 option to chose from"<<End();
+            return *frontier.begin();
+        }
+
+        for(auto& node: frontier) {
+            if(node->get_starting_inst() != node->get_block()->begin()) {
+                std::cout<<"FlowNode "<<node->get_name()<<" is not at start of block"<<std::endl;
+                return node;
+            }
+        }
+
+        std::unordered_map<Block*, std::unordered_map<Block*, unsigned>> descendants;
+        for(auto& node: frontier) {
+            Block& block = *node->get_block();
+            auto it = descendants.find(&block);
+            if(it != descendants.end()) continue;
+            descendants[&block] = GetDescendants(&block);
+        }
+
+        //Descendants now contains the minimum distance from every block in the frontier to every reachable block
+
+        std::unordered_set<Block*> postDominating;
+
+        for(auto& [block, map]: descendants) {
+            for(auto& [otherBlock, _]: descendants) {
+                if(otherBlock == block) continue;
+                if(PostDominates(block, otherBlock)) {
+                    LogTrace<<block->GetName()<<" post dominates "<<otherBlock->GetName()<<End();
+                    postDominating.insert(block);
+                }
+            }
+        }
+
+        for(auto& block: postDominating) {
+            descendants.erase(block);
+        }
+
+        //Descendants now does not contain any blocks which postdominate any other blocks in the frontier
+
+        std::unordered_set<Block*> reachable;
+
+        for(auto& [candidate, map]: descendants) {
+            for(auto& [otherBlock, otherMap]: descendants) {
+                if(otherBlock == candidate) continue;
+                if(otherMap.find(candidate) != otherMap.end()) {
+                    reachable.insert(candidate);
+                    LogTrace<<candidate->GetName()<<" reachable from "<<otherBlock->GetName()<<End();
+                    break;
+                }
+            }
+        }
+
+        for(auto& x: reachable) {
+            descendants.erase(x);
+        }
+
+        if(descendants.empty()) {
+            LogWarning<<"No suitable node can be chosen"<<End();
+            return *frontier.begin();
         } else {
-            LogError<<"Unexpected block name"<<End();
-            return 6;
+            Block* chosenBlock = descendants.begin()->first;
+            for(auto& node: frontier) {
+                if(&*node->get_block() == chosenBlock) {
+                    return node;
+                }
+            }
+            LogError<<"Block chosen with no associated node"<<End();
+            return *frontier.begin();
         }
-    };
 
-    auto result = *frontier.begin();
-    unsigned resultValue = evaluate(result);
 
-    for(auto& node: frontier) {
-        //TODO implement choose function
-        unsigned value = evaluate(node);
-        if(value < resultValue) {
-            result = node;
-            resultValue = value;
+        // LogWarning<<"Optimal choose not implemeted yet"<<End();
+        // if(frontier.empty()) {
+        //     LogError<<"Attempted to choose node from empty frontier"<<End();
+        //     return nullptr;
+        // }
+
+        // auto evaluate = [](auto node) {
+        //     auto name = node->get_block()->GetName();
+        //     if(name == ".START") {
+        //         return 0;
+        //     } else if (name == ".LOOP_HEADER") {
+        //         return 1;
+        //     } else if (name == ".LOOP_START") {
+        //         return 2;
+        //     } else if (name == ".LOOP_END") {
+        //         return 3;
+        //     } else if (name == ".BAD_RET") {
+        //         return 4;
+        //     } else if (name == ".GOOD_RET") {
+        //         return 5;
+        //     } else {
+        //         LogError<<"Unexpected block name"<<End();
+        //         return 6;
+        //     }
+        // };
+
+        // auto result = *frontier.begin();
+        // unsigned resultValue = evaluate(result);
+
+        // for(auto& node: frontier) {
+        //     //TODO implement choose function
+        //     unsigned value = evaluate(node);
+        //     if(value < resultValue) {
+        //         result = node;
+        //         resultValue = value;
+        //     }
+        // }
+
+        // return result;
+    } break;
+    }
+}
+
+std::unordered_map<Block*, unsigned> SymbolicEvaluation::GetDescendants(Block *block)
+{
+    std::unordered_set<Block*> frontier;
+    std::unordered_set<Block*> next;
+    unsigned distance = 0;
+    std::unordered_map<Block*, unsigned> distances;
+
+    frontier.insert(block);
+    while(!frontier.empty()) {
+        for(const auto& x: frontier) {
+            auto it = distances.find(x);
+            if(it == distances.end()) {
+                distances[x] = distance;
+                for(const auto& s: x->successors()) {
+                    auto sIt = distances.find(s);
+                    if(sIt == distances.end()) {
+                        next.insert(s);
+                    }
+                }
+            }
         }
+        frontier = next;
+        next.clear();
+        ++distance;
     }
 
-    return result;
+    return distances;
+}
+
+bool SymbolicEvaluation::PostDominates(Block *dominator, Block *source)
+{
+    std::unordered_set<Block*> frontier;
+    std::unordered_set<Block*> next;
+    std::unordered_set<Block*> seen;
+
+    frontier.insert(source);
+    while(!frontier.empty()) {
+        for(const auto& x: frontier) {
+            if(x == dominator) {
+                 continue;
+            }
+            auto it = seen.find(x);
+            if(it == seen.end()) { //if x has not yet been seen
+                seen.insert(x);
+                if(x->succ_size() == 0) {
+                    return false;
+                }
+                for(const auto& s: x->successors()) {
+                    auto sIt = seen.find(s);
+                    if(s != dominator && sIt == seen.end()) { //TODO check for redundancy
+                        next.insert(s);
+                    }
+                }
+            }
+        }
+        frontier = next;
+        next.clear();
+    }
+
+    return true;
 }
 
 void SymbolicEvaluation::StepNode(FlowNode *node)
 {
-    std::cout<<"Getting information"<<std::endl;
     auto inst = node->get_starting_inst();
     auto block = node->get_block();
     auto func = node->get_func();
     std::optional<std::unordered_set<FlowNode*>> next;
 
     while(inst != block->end() && next == std::nullopt) {
-        std::cout<<"Running inst "<<toString(*inst)<<std::endl;
         next = RunInst(*inst, node);
-        std::cout<<"Incrementing inst"<<std::endl;
         LogDetail<<"Incrementing inst "<<toString(*inst)<<End();
         ++inst;
         if(inst == block->end()) {
-            std::cout<<"Incremented to block end"<<std::endl;
             LogDetail<<"Incremented to block end"<<End();
         } else {
-            std::cout<<"Incremented inst "<<toString(*inst)<<std::endl;
             LogDetail<<"Incremented inst "<<toString(*inst)<<End();
         }
     }
@@ -220,7 +370,6 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
     Inst &inst,
     FlowNode *node
 ) {
-    std::cout<<"Start of run inst"<<std::endl;
     switch(inst.GetKind()) {
     case Inst::Kind::ADD:
         LogTrace<<"Running add"<<End();
@@ -273,7 +422,6 @@ std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::RunInst(
         return std::nullopt;
 
     case Inst::Kind::PHI:
-        std::cout<<"Phi"<<std::endl;
         LogTrace<<"Running phi"<<End();
         Phi(static_cast<PhiInst*>(&inst), node);
         return std::nullopt;
@@ -977,7 +1125,6 @@ std::unordered_set<FlowNode*> SymbolicEvaluation::JumpCond(
                 )
             );
         }
-
     } else {
         LogDetail<<"Taking both branches"<<End();
         LogTrace<<"Jumping to blocks "<<trueBlock->GetName()<<" and "<<falseBlock->GetName()<<End();
@@ -1566,7 +1713,6 @@ void SymbolicEvaluation::Phi(
     PhiInst *phiInst,
     FlowNode *node
 ) {
-    std::cout<<"Running phi"<<std::endl;
     node->AllocateResult(
         phiInst,
         node->ResolvePhi(phiInst)

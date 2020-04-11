@@ -41,11 +41,17 @@ private:
     using Block_iterator = llvm::ilist<Block>::iterator;
     using Inst_iterator = llvm::ilist<Inst>::iterator;
 
-    std::optional<std::unordered_set<FlowNode*>> RunInst(Inst &inst, FlowNode *node);
-
     void JoinNodes();
     FlowNode *ChooseNextNode();
     void StepNode(FlowNode *node);
+    std::optional<std::unordered_set<FlowNode*>> RunInst(Inst &inst, FlowNode *node);
+
+    static constexpr enum class JoinStrategy {
+        NEVER, ALWAYS
+    } joinStrategy = JoinStrategy::ALWAYS;
+    static constexpr enum class ChooseStrategy {
+        NAIVE, OPTIMAL
+    } chooseStrategy = ChooseStrategy::OPTIMAL;
 
     void Optimise();
     void Rewrite();
@@ -79,6 +85,9 @@ private:
     SuccessorFlowNode *CreateReturnFlowNode(FlowNode *previous);
     SuccessorFlowNode *CreateBlockFlowNode(Block_iterator block, FlowNode *previous, std::optional<z3::expr> constraint = std::nullopt);
     SuccessorFlowNode *CreateFunctionFlowNode(Func_iterator func, std::vector<SymValue*> args, Inst_iterator caller, FlowNode *previous);
+
+    std::unordered_map<Block*, unsigned> GetDescendants(Block* block);
+    bool PostDominates(Block *dominator, Block *sourse);
 
     Prog *prog;
 
