@@ -458,7 +458,8 @@ SymValue *JoinFlowNode::ResolvePhi(PhiInst *phiInst, bool includeSelf)
 
 SymValue *JoinFlowNode::GetResult(Inst *inst)
 {
-    auto iter = vreg_allocs.find(inst);
+    //Active comparison strategy
+    /*auto iter = vreg_allocs.find(inst);
 
     if(iter != vreg_allocs.end()) {
         return values[iter->second];
@@ -481,7 +482,27 @@ SymValue *JoinFlowNode::GetResult(Inst *inst)
                 previous[0]->get_path_constraint()
             )
         );
+    }*/
+    //Passive strategy
+    auto iter = vreg_allocs.find(inst);
+
+    if(iter != vreg_allocs.end()) {
+        return values[iter->second];
     }
+
+    LogDetail<<"Splitting GetResult"<<End();
+
+    SymValue *left = previous[0]->GetResult(inst);
+    SymValue *right = previous[1]->GetResult(inst);
+
+    LogDetail<<"Creating conditional"<<End();
+    return pool.persist(
+        new CondSymValue(
+            left,
+            right,
+            previous[0]->get_path_constraint()
+        )
+    );
 }
 
 LogStore &JoinFlowNode::get_store() const
