@@ -34,6 +34,7 @@ FlowNode::FlowNode(
 ) :
     currentFrame(frame),
     pool(pool),
+    logStore(pool),
     context(context),
     pathConstraint(pathConstraint)
 {
@@ -107,7 +108,7 @@ SymValue *FlowNode::CreateSymValue(
         switch(g->GetKind()) {
         case Global::Kind::ATOM: {
             LogDetail<<"Allocating global atom (label) "<<g->GetName()<<End();
-            const Label *label = get_store().getLabel(g->GetName());
+            const Label *label = getStoreLabel(g->GetName());
             if(label == nullptr) {
                 LogWarning<<"Attempted to create address symvalue to unknown label"<<End();
             } else {
@@ -199,6 +200,58 @@ void FlowNode::AllocateResult(
     values.push_back(value);
 }
 
+std::string_view FlowNode::AllocateHeapBlock(unsigned size)
+{
+    return logStore.addHeapAtom(size);
+}
+
+const Label *FlowNode::getStoreLabel(std::string_view name)
+{
+    return GetBaseStore().getLabel(name);
+}
+
+SymValue *FlowNode::readStore(SymValue *loc, size_t loadSize, Type type, Inst *inst)
+{
+    SymValue *result = readValueFromStore(loc, loadSize, type);
+    if(inst != nullptr) {
+        logStore.recordRead(loc, result, inst);
+    }
+    return result;
+}
+
+SymValue *FlowNode::readValueFromStore(SymValue *loc, size_t loadSize, Type type)
+{
+    SymValue *result = logStore.read(loc, loadSize, type, this);
+    if(result == nullptr) {
+        result = delegateRead([loc, loadSize, type](FlowNode &node) {
+            return node.readValueFromStore(loc, loadSize, type);
+        });
+
+        if(result == nullptr) {
+            result = GetBaseStore().read(loc, loadSize, type, this);
+
+            if(result == nullptr) {
+                result = pool.persist(
+                    new UnknownSymValue(
+                        type
+                    )
+                );
+            }
+        }
+    }
+    return result;
+}
+
+void FlowNode::writeStore(SymValue *addr, SymValue *value, Inst *inst)
+{
+    logStore.write(addr, value, inst);
+}
+
+LogStore &FlowNode::GetLogStore()
+{
+    return logStore;
+}
+
 Frame &FlowNode::get_frame() const
 {
     return currentFrame;
@@ -267,7 +320,7 @@ SuccessorFlowNode::SuccessorFlowNode(
     FlowNode(frame, pool, context, pathConstraint),
     startingInst(startingInst),
     previousNode(previous),
-    dataStore(CreateLogStore(previous, pool))
+    baseStore(previous.GetBaseStore())
 {
 }
 
@@ -321,14 +374,14 @@ SymValue *SuccessorFlowNode::GetResult(Inst *inst)
     return previousNode.GetResult(inst);
 }
 
-LogStore &SuccessorFlowNode::get_store() const
+SymValue *SuccessorFlowNode::delegateRead(std::function<SymValue*(FlowNode& node)> readFunc)
 {
-    return *dataStore;
+    return readFunc(previousNode);
 }
 
-std::string_view SuccessorFlowNode::AllocateHeapBlock(unsigned size)
+BaseStore &SuccessorFlowNode::GetBaseStore()
 {
-    return dataStore->addHeapAtom(size);
+    return baseStore;
 }
 
 Inst_iterator SuccessorFlowNode::get_starting_inst() const
@@ -386,7 +439,7 @@ JoinFlowNode::JoinFlowNode(
     FlowNode(frame, pool, context, (previous1.get_path_constraint() || previous2.get_path_constraint())),
     startingInst(startingInst),
     previous{&previous1, &previous2},
-    dataStore(CreateJoinLogStore(previous1, previous2, pool))
+    baseStore(previous1.GetBaseStore())
 {
 }
 
@@ -505,14 +558,22 @@ SymValue *JoinFlowNode::GetResult(Inst *inst)
     );
 }
 
-LogStore &JoinFlowNode::get_store() const
+SymValue *JoinFlowNode::delegateRead(std::function<SymValue*(FlowNode& node)> readFunc)
 {
-    return *dataStore;
+    SymValue *left = readFunc(*previous[0]);
+    SymValue *right = readFunc(*previous[1]);
+    return pool.persist(
+        new CondSymValue(
+            left,
+            right,
+            previous[0]->get_path_constraint()
+        )
+    );
 }
 
-std::string_view JoinFlowNode::AllocateHeapBlock(unsigned size)
+BaseStore &JoinFlowNode::GetBaseStore()
 {
-    return dataStore->addHeapAtom(size);
+    return baseStore;
 }
 
 Inst_iterator JoinFlowNode::get_starting_inst() const
@@ -570,8 +631,7 @@ RootFlowNode::RootFlowNode(
 ) :
     FlowNode(CreateBaseFrame(func, pool), pool, context, context.bool_val(true)),
     func(func),
-    baseStore(prog, pool),
-    dataStore(std::make_unique<LogStore>(baseStore, pool))
+    baseStore(prog, pool)
 {
 }
 
@@ -620,14 +680,14 @@ SymValue *RootFlowNode::GetResult(Inst *inst)
     }
 }
 
-LogStore &RootFlowNode::get_store() const
+SymValue *RootFlowNode::delegateRead(std::function<SymValue*(FlowNode& node)> readFunc)
 {
-    return *dataStore;
+    return nullptr;
 }
 
-std::string_view RootFlowNode::AllocateHeapBlock(unsigned size)
+BaseStore &RootFlowNode::GetBaseStore()
 {
-    return dataStore->addHeapAtom(size);
+    return baseStore;
 }
 
 Inst_iterator RootFlowNode::get_starting_inst() const
@@ -684,23 +744,6 @@ Frame &CreateBaseFrame(
         nullptr,
         std::nullopt
     ));
-}
-
-std::unique_ptr<LogStore> CreateLogStore(FlowNode &previous, SymExPool &pool)
-{
-    DataStore &store = previous.get_store();
-    LogStore *newStore = new LogStore(store, pool);
-    return std::unique_ptr<LogStore>(newStore);
-}
-
-std::unique_ptr<LogStore> CreateJoinLogStore(FlowNode &previousLeft, FlowNode &previousRight, SymExPool &pool)
-{
-    // DataStore &leftStore = previousLeft.get_store();
-    // DataStore &rightStore = previousRight.get_store();
-    // LogStore *newStore = new JoinStore(leftStore, rightStore, pool);
-    // return std::unique_ptr<LogStore>(newStore);
-    LogWarning<<"Join store not implemented"<<End();
-    return std::unique_ptr<LogStore>();
 }
 
 //Make a copy of an iterator and increment it

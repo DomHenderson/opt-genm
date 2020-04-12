@@ -50,9 +50,13 @@ public:
     virtual void AllocateResult(Inst *inst, SymValue *value);
     virtual SymValue *GetResult(Inst *inst) = 0;
 
-    virtual LogStore &get_store() const = 0;
+    virtual const Label *getStoreLabel(std::string_view name);
+    virtual SymValue *readStore(SymValue *loc, size_t loadSize, Type type, Inst *inst = nullptr);
+    virtual void writeStore(SymValue *addr, SymValue *value, Inst *inst);
+    virtual BaseStore &GetBaseStore() = 0;
+    virtual LogStore &GetLogStore();
 
-    virtual std::string_view AllocateHeapBlock(unsigned size) = 0;
+    virtual std::string_view AllocateHeapBlock(unsigned size);
 
     virtual Inst_iterator get_starting_inst() const = 0;
     virtual Block_iterator get_block() const = 0;
@@ -73,10 +77,14 @@ public:
     virtual void AssertStateConstraints(z3::solver &solver) const =0;
 protected:
     virtual SymValue *TryLocalPhiResolution(PhiInst *phiInst);
+    virtual SymValue *readValueFromStore(SymValue *loc, size_t loadSize, Type type);
+    virtual SymValue *delegateRead(std::function<SymValue*(FlowNode& node)> readFunc) =0;
 
     std::unordered_map<Inst*,unsigned> vreg_allocs;
     std::vector<SymValue*> values;
     std::unordered_map<ConstantReg::Kind,SymValue*> registers;
+    LogStore logStore;
+
     z3::expr pathConstraint;
     std::vector<z3::expr> constraints;
     Frame &currentFrame;
@@ -101,10 +109,7 @@ public:
     virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) override;
 
     virtual SymValue *GetResult(Inst *inst) override;
-
-    virtual LogStore &get_store() const override;
-
-    virtual std::string_view AllocateHeapBlock(unsigned size) override;
+    virtual BaseStore &GetBaseStore() override;
 
     virtual Inst_iterator get_starting_inst() const override;
     virtual Block_iterator get_block() const override;
@@ -113,12 +118,14 @@ public:
     virtual std::string get_name() const override;
 
     virtual void AssertStateConstraints(z3::solver &solver) const override;
+protected:
+    virtual SymValue *delegateRead(std::function<SymValue*(FlowNode& node)> readFunc) override;
 private:
     Inst_iterator startingInst;
 
     FlowNode &previousNode;
 
-    std::unique_ptr<LogStore> dataStore;
+    BaseStore &baseStore;
 };
 
 class JoinFlowNode: public FlowNode {
@@ -136,8 +143,7 @@ public:
     virtual SuccessorFlowNode *CreateReturnNode() override;
     virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) override;
     virtual SymValue *GetResult(Inst *inst) override;
-    virtual LogStore &get_store() const override;
-    virtual std::string_view AllocateHeapBlock(unsigned size) override;
+    virtual BaseStore &GetBaseStore() override;
 
     virtual Inst_iterator get_starting_inst() const override;
     virtual Block_iterator get_block() const override;
@@ -146,10 +152,13 @@ public:
     virtual std::string get_name() const override;
 
     virtual void AssertStateConstraints(z3::solver &solver) const override;
+protected:
+    virtual SymValue *delegateRead(std::function<SymValue*(FlowNode& node)> readFunc) override;
 private:
     Inst_iterator startingInst;
     FlowNode *previous[2];
-    std::unique_ptr<LogStore> dataStore;
+
+    BaseStore &baseStore;
 };
 
 class RootFlowNode : public FlowNode {
@@ -162,10 +171,7 @@ public:
     virtual SymValue *ResolvePhi(PhiInst *phiInst, bool includeSelf = false) override;
 
     virtual SymValue *GetResult(Inst *inst) override;
-
-    virtual LogStore &get_store() const override;
-
-    virtual std::string_view AllocateHeapBlock(unsigned size) override;
+    virtual BaseStore &GetBaseStore() override;
 
     virtual Inst_iterator get_starting_inst() const override;
     virtual Block_iterator get_block() const override;
@@ -174,9 +180,10 @@ public:
     virtual std::string get_name() const override;
 
     virtual void AssertStateConstraints(z3::solver &solver) const override;
+protected:
+    virtual SymValue *delegateRead(std::function<SymValue*(FlowNode& node)> readFunc) override;
 private:
     Func &func;
     
     BaseStore baseStore;
-    std::unique_ptr<LogStore> dataStore;
 };

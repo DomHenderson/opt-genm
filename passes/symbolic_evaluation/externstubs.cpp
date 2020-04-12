@@ -22,7 +22,7 @@ std::optional<SymValue*> strlenStub(std::vector<SymValue*> args, FlowNode* node,
     if(arg->get_kind() == SymValue::Kind::STATICPTR) {
         std::cout<<"Running strlen"<<std::endl;
         auto addr = static_cast<StaticPtrSymValue*>(arg);
-        auto label = node->get_store().getLabel(addr->get_name());
+        auto label = node->getStoreLabel(addr->get_name());
         unsigned length = 0;
         StaticPtrSymValue* i;
         while(true) {
@@ -34,7 +34,7 @@ std::optional<SymValue*> strlenStub(std::vector<SymValue*> args, FlowNode* node,
                 addr->get_max(),
                 addr->get_type()
             ));
-            auto read = node->get_store().read(i, 1, Type::U8, node);
+            auto read = node->readStore(i, 1, Type::U8);
             if(read == nullptr) {
                 std::cout<<"WARNING: Read returned nullptr"<<std::endl;
                 return std::nullopt;

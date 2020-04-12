@@ -206,10 +206,8 @@ BaseStore::BaseStore(
     LogDetail<<"Finished updating"<<End();
 }
 
-SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst, bool, unsigned debugCount)
+SymValue *BaseStore::read(SymValue *loc, size_t loadSize, Type type, FlowNode *node)
 {
-    LogDetail<<debugCount<<" delegations"<<End();
-
     if(loc->get_kind() == SymValue::Kind::STATICPTR) {
         StaticPtrSymValue *addr = static_cast<StaticPtrSymValue*>(loc);
 
@@ -260,21 +258,6 @@ std::vector<SymValue*> BaseStore::readSequence(SymValue *addr, unsigned size)
     return result; //TODO finish this
 }
 
-void BaseStore::write(
-    SymValue *addr,
-    SymValue *value,
-    Inst *inst
-) {
-    LogWarning<<"base write not implemented"<<End();
-}
-
-void BaseStore::invalidate(
-    MappedAtom &startPoint,
-    Inst *Inst
-) {
-    LogWarning<<"base invalidate not implemented"<<End();
-}
-
 const Label *BaseStore::getLabel(std::string_view name) const
 {
     if(labels.find(name) == labels.end()) {
@@ -289,17 +272,14 @@ const Label *BaseStore::getLabel(std::string_view name) const
 //-----------------------------------------------------------------------------
 
 LogStore::LogStore(
-    DataStore &store,
     SymExPool &pool
 ):
-    DataStore(pool),
-    baseStore(store),
-    nextHeapName(baseStore.getNextHeapName())
+    DataStore(pool)
 {
-    LogDetail<<"Correct constructor"<<End();
+    LogDetail<<"LogStore constructor"<<End();
 }
 
-SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst, bool record, unsigned debugCount)
+SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, FlowNode *node)
 {
     SymValue *value = nullptr;
 
@@ -312,7 +292,7 @@ SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, FlowNode *no
             auto read = static_cast<Read*>(actions[i].get());
             if(SymComp::EQ(loc, read->get_addr(),node).first == SymComp::Result::TRUE) {
                 value = read->get_value();
-                if(value->get_type() != type) LogDetail<<"Load type mismatch with read"<<End();
+                if(value->get_type() != type) LogWarning<<"Load type mismatch with read"<<End();
                 break;
             }
         } else { // action is a write
@@ -324,25 +304,24 @@ SymValue *LogStore::read(SymValue *loc, size_t loadSize, Type type, FlowNode *no
             } else if(SymComp::EQ(loc,write->get_addr(), node).first == SymComp::Result::TRUE) {
                 LogDetail<<"Found match"<<End();
                 value = write->get_value();
-                if(value->get_type() != type) LogDetail<<"Load type mismatch with write"<<End();
+                if(value->get_type() != type) LogWarning<<"Load type mismatch with write"<<End();
                 break;
             }
         }
     }
-    if(value == nullptr) {
-        value = baseStore.read(loc, loadSize, type, node, inst, false, debugCount+1);
-    }
-    if(record) {
-        LogDetail<<"Recording read"<<End();
-        actions.push_back(std::make_unique<Read>(loc, value, inst));
-        LogDetail<<"Found value is "<<(value == nullptr ? "nullptr":toString(*value))<<End();
-    }
     return value;
+}
+
+void LogStore::recordRead(SymValue *loc, SymValue *value, Inst *inst)
+{
+    LogDetail<<"Recording read"<<End();
+    actions.push_back(std::make_unique<Read>(loc, value, inst));
+    LogDetail<<"Found value is "<<(value == nullptr ? "nullptr":toString(*value))<<End();
 }
 
 std::vector<SymValue*> LogStore::readSequence(SymValue *addr, unsigned size)
 {
-    LogWarning<<"Logstore readSequence is not implemented yet"<<End();
+    LogError<<"Logstore readSequence is not implemented yet"<<End();
     return std::vector<SymValue*>();
 }
 
@@ -363,12 +342,9 @@ void LogStore::invalidate(
     actions.push_back(std::make_unique<Invalidate>(startPoint, inst)); //TODO
 }
 
-const Label *LogStore::getLabel(std::string_view name) const
-{
-    return baseStore.getLabel(name);
-}
+std::string LogStore::nextHeapName = "0";
 
-std::string LogStore::getNextHeapName() const
+std::string LogStore::getNextHeapName()
 {
     return nextHeapName;
 }
@@ -400,11 +376,9 @@ std::string_view LogStore::addHeapAtom(unsigned size)
     return std::string_view(iter->first);
 }
 
-std::vector<DataStore::Action*> LogStore::getFullLog() const
+std::vector<LogStore::Action*> LogStore::getLog() const
 {
     LogDetail<<"Getting log"<<End();
-    auto previousLog = baseStore.getFullLog();
-    LogDetail<<"Previous length: "<<previousLog.size()<<End();
     auto log = std::vector<Action*>();
     std::transform(
         actions.begin(),
@@ -416,38 +390,5 @@ std::vector<DataStore::Action*> LogStore::getFullLog() const
     LogDetail<<"Transformed"<<End();
     LogDetail<<"Log size "<<log.size()<<End();
 
-    if(previousLog.size() == 0) {
-        LogDetail<<"Returning own log"<<End();
-        return log;
-    } else {
-        previousLog.insert(previousLog.end(), log.begin(), log.end());
-        return previousLog;
-    }
+    return log;
 }
-
-// std::vector<MappedAtom*> LogStore::modelPointers(std::string_view name)
-// {
-//     const MappedAtom *atom = getLabel(name)->atom;
-//     const unsigned size = atom->getSize();
-//     std::vector<SymByteRef> bytes(size);
-
-//     fillMissingBytes(bytes, atom);
-
-//     return std::vector<MappedAtom*>();
-// }
-
-// void LogStore::fillMissingBytes(std::vector<SymByteRef> &bytes, const MappedAtom* atom) const
-// {
-//     for(int i = actions.size()-1; i >= 0; --i) {
-//         switch(actions[i]->get_kind()) {
-//         case Action::Kind::READ:
-//         case Action::Kind::WRITE: {
-//             auto action = static_cast<ReadWrite*>(actions[i].get());
-//         } break;
-//         }
-//     }
-// }
-
-
-
-

@@ -33,12 +33,47 @@ class DataStore {
 public:
     DataStore(SymExPool &pool): storagePool(pool) {}
     virtual ~DataStore() = default;
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) = 0;
-    virtual void write(SymValue *addr, SymValue *value, Inst *inst) = 0;
-    virtual void invalidate(MappedAtom &startPoint, Inst *inst) = 0;
-    virtual const Label *getLabel(std::string_view name) const = 0;
-    virtual std::string getNextHeapName() const = 0;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node) = 0;
     virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) = 0;
+protected:
+    SymExPool &storagePool;
+};
+
+struct DataSegmentInfo {
+    std::string_view name;
+    bool readOnly;
+    unsigned start;
+    unsigned end;
+};
+
+class BaseStore: public DataStore {
+public:
+    BaseStore(Prog &prog, SymExPool &storagePool);
+    virtual ~BaseStore() override = default;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node) override;
+    virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
+
+    const Label *getLabel(std::string_view name) const;
+private:
+    std::vector<DataSegmentInfo> dataSegments;
+
+    std::vector<std::unique_ptr<MappedAtom>> atoms;    //Each atom can have multiple labels pointing into it
+    std::unordered_map<std::string_view,Label> labels; //So we need to store them separately
+};
+
+class LogStore: public DataStore {
+public:
+    LogStore(SymExPool &pool);
+    virtual ~LogStore() override = default;
+    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node) override;
+    virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
+    
+    class Action;
+    std::string_view addHeapAtom(unsigned size);
+    std::vector<Action*> getLog() const;
+    void invalidate(MappedAtom &startPoint, Inst *inst);
+    void recordRead(SymValue *loc, SymValue *value, Inst *inst);
+    void write(SymValue *addr, SymValue *value, Inst *inst);
 
     class Action {
     public:
@@ -63,7 +98,7 @@ public:
         SymValue *get_value() const { return value; }
     protected:
         SymValue *addr;
-        SymValue *value;    
+        SymValue *value;
     };
     class Read: public ReadWrite {
     public:
@@ -75,79 +110,12 @@ public:
         Write(SymValue *addr, SymValue *value, Inst *inst): ReadWrite(addr, value, inst) {}
         virtual Kind get_kind() const override { return Kind::WRITE; }
     };
-
-    virtual std::vector<Action*> getFullLog() const = 0;
-protected:
-    SymExPool &storagePool;
-    // virtual std::vector<MappedAtom*> modelPointers(std::string_view name) = 0;
-// private:
-    // virtual void fillMissingBytes(std::vector<SymByteRef> &bytes, const MappedAtom *atom) const = 0;
-};
-
-struct DataSegmentInfo {
-    std::string_view name;
-    bool readOnly;
-    unsigned start;
-    unsigned end;
-};
-
-class BaseStore: public DataStore {
-public:
-    BaseStore(Prog &prog, SymExPool &storagePool);
-    virtual ~BaseStore() override = default;
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
-    virtual void write(SymValue *addr, SymValue *value, Inst *inst) override;
-    virtual void invalidate(MappedAtom &startPoint, Inst *inst) override;
-    virtual const Label *getLabel(std::string_view name) const override;
-    virtual std::string getNextHeapName() const override { return "0"; } //BaseStores do not have heaps so the next name is the first name
-    virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
-    virtual std::vector<Action*> getFullLog() const override { return std::vector<Action*>(); }
-    // virtual std::vector<MappedAtom*> modelPointers(std::string_view name) override;
+    
 private:
-    // virtual void fillMissingBytes(std::vector<SymByteRef> &bytes, const MappedAtom *atom) const override;
-
-    std::vector<DataSegmentInfo> dataSegments;
-
-    std::vector<std::unique_ptr<MappedAtom>> atoms;    //Each atom can have multiple labels pointing into it
-    std::unordered_map<std::string_view,Label> labels; //So we need to store them separately
-};
-
-class LogStore: public DataStore {
-public:
-    LogStore(DataStore &store, SymExPool &pool);
-    virtual ~LogStore() override = default;
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
-    virtual void write(SymValue *addr, SymValue *value, Inst *inst) override;
-    virtual void invalidate(MappedAtom &startPoint, Inst *inst) override;
-    virtual const Label *getLabel(std::string_view name) const override;
-    virtual std::string_view addHeapAtom(unsigned size);
-    virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
-    // virtual std::vector<MappedAtom*> modelPointers(std::string_view name) override;
-
-    virtual std::vector<Action*> getFullLog() const override;
-
-protected:
-    virtual std::string getNextHeapName() const override;
-private:
-    // virtual void fillMissingBytes(std::vector<SymByteRef> &bytes, const MappedAtom *atom) const override;
-    void incrementNextHeapName();
-
-    DataStore &baseStore;
     std::vector<std::unique_ptr<Action>> actions;
 
+    static std::string getNextHeapName();
+    static void incrementNextHeapName();
+    static std::string nextHeapName;
     std::unordered_map<std::string, std::unique_ptr<MappedAtom>> heap;
-    std::string nextHeapName;
-};
-
-class JoinStore: public LogStore {
-    JoinStore(DataStore &leftStore, DataStore &rightStore, SymExPool &pool);
-    virtual ~JoinStore() override = default;
-    virtual SymValue *read(SymValue *loc, size_t loadSize, Type type, FlowNode *node, Inst *inst = nullptr, bool record = true, unsigned debugCount = 0) override;
-    virtual void write(SymValue *addr, SymValue *value, Inst *inst) override;
-    virtual void invalidate(MappedAtom &startPoint, Inst *inst) override;
-    virtual const Label *getLabel(std::string_view name) const override;
-    virtual std::string_view addHeapAtom(unsigned size) override;
-    virtual std::vector<SymValue*> readSequence(SymValue *start, unsigned size) override;
-
-    virtual std::vector<Action*> getFullLog() const override;
 };

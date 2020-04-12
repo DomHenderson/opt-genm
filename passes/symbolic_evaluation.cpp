@@ -563,7 +563,7 @@ std::vector<Inst*> SymValueToInsts(SymValue *value, FlowNode *node, Prog *prog)
         result.push_back(addrInst);
         LogDetail<<toString(addrInst)<<End();
 
-        unsigned defaultOffset = node->get_store().getLabel(ptrValue->get_name())->offset;
+        unsigned defaultOffset = node->getStoreLabel(ptrValue->get_name())->offset;
         unsigned offset = ptrValue->get_offset().getLimitedValue();
         if(offset < defaultOffset) {
             LogDetail<<"Default offset for "<<ptrValue->get_name()<<" is "<<defaultOffset<<End();
@@ -594,18 +594,18 @@ std::vector<Inst*> SymValueToInsts(SymValue *value, FlowNode *node, Prog *prog)
     return result;
 }
 
-std::vector<DataStore::Action*> GetImportantWrites(FlowNode *node)
+std::vector<LogStore::Action*> GetImportantWrites(FlowNode *node)
 {
-    std::vector<DataStore::Action*> log = node->get_store().getFullLog();
+    std::vector<LogStore::Action*> log = node->GetLogStore().getLog();
     LogDetail<<"Retrieved log of size "<<log.size()<<End();
     for(int i = log.size()-1; i >= 0; --i) {
         LogDetail<<"i: "<<i<<End();
         auto action = log[i];
-        if(action->get_kind() == DataStore::Action::Kind::WRITE) {
-            auto write = static_cast<DataStore::Write*>(action);
+        if(action->get_kind() == LogStore::Action::Kind::WRITE) {
+            auto write = static_cast<LogStore::Write*>(action);
             for(int j = i-1; j >= 0; --j) {
-                if(log[j]->get_kind() == DataStore::Action::Kind::WRITE) {
-                    auto write2 = static_cast<DataStore::Write*>(log[j]);
+                if(log[j]->get_kind() == LogStore::Action::Kind::WRITE) {
+                    auto write2 = static_cast<LogStore::Write*>(log[j]);
                     if(SymComp::EQ(write->get_addr(), write2->get_addr(), node).first == SymComp::Result::TRUE) {
                         log.erase(log.begin()+j);
                         --i;
@@ -630,8 +630,8 @@ void SymbolicEvaluation::Rewrite()
         log.begin(), log.end(),
         std::back_inserter(writeInsts),
         [](auto& action) {
-            assert(action->get_kind() == DataStore::Action::Kind::WRITE);
-            auto write = static_cast<DataStore::Write*>(action);
+            assert(action->get_kind() == LogStore::Action::Kind::WRITE);
+            auto write = static_cast<LogStore::Write*>(action);
             return std::make_pair(write->get_inst(), write->get_addr());
         }
     );
@@ -1232,7 +1232,7 @@ void SymbolicEvaluation::Load(
     FlowNode *node
 ) {
     SymValue *addr = node->GetResult(loadInst->GetAddr());
-    node->AllocateResult(loadInst,node->get_store().read(addr, loadInst->GetLoadSize(), loadInst->GetType(), node, loadInst));
+    node->AllocateResult(loadInst,node->readStore(addr, loadInst->GetLoadSize(), loadInst->GetType(), loadInst));
 }
 
 void SymbolicEvaluation::Mov(
@@ -1590,7 +1590,7 @@ void SymbolicEvaluation::Store(
 ) {
     SymValue *addr = node->GetResult(storeInst->GetAddr());
     SymValue *value = node->GetResult(storeInst->GetVal());
-    node->get_store().write(addr, value, storeInst);
+    node->writeStore(addr, value, storeInst);
 }
 
 std::optional<std::unordered_set<FlowNode*>> SymbolicEvaluation::Sub(
