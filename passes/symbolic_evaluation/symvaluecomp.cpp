@@ -22,7 +22,6 @@ std::pair<Result, std::optional<z3::expr>> Compare(ComparisonType type, SymValue
 
 std::pair<Result, std::optional<z3::expr>> SymComp::EQ(SymValue *lv, SymValue *rv, FlowNode *node)
 {
-    std::cout<<"Running EQ"<<std::endl;
     return Compare(ComparisonType::EQ, lv, rv, node);
 }
 
@@ -63,12 +62,9 @@ std::pair<Result, std::optional<z3::expr>> EQ_Impl(SymValue *lv, SymValue *rv, F
     assert(lv->get_kind() != SymValue::Kind::CONDITIONAL);
     assert(rv->get_kind() != SymValue::Kind::CONDITIONAL);
 
-    std::cout<<"Evaluating "<<toString(lv)<<" == "<<toString(rv)<<std::endl;
-
     auto &c = node->get_context();
     //std::cout<<"Obtained context"<<std::endl;
     if ( lv == rv ) {
-        std::cout<<"Reference equality"<<std::endl;
         return {
             Result::TRUE,
             c.bool_val(true)
@@ -117,9 +113,7 @@ std::pair<Result, std::optional<z3::expr>> EQ_Impl(SymValue *lv, SymValue *rv, F
         }
     }
 
-    std::cout<<"Invoking smt"<<std::endl;
     auto result = InvokeSmt(lv, rv, [](auto l, auto r){return l == r;}, node);
-    std::cout<<"Done"<<std::endl;
     return result;
 }
 
@@ -127,8 +121,6 @@ std::pair<Result, std::optional<z3::expr>> LT_Impl(SymValue *lv, SymValue *rv, F
 {
     assert(lv->get_kind() != SymValue::Kind::CONDITIONAL);
     assert(rv->get_kind() != SymValue::Kind::CONDITIONAL);
-
-    std::cout<<"Evaluating "<<toString(lv)<<" < "<<toString(rv)<<std::endl;
 
     auto &c = node->get_context();
 
@@ -177,7 +169,6 @@ std::unordered_map<ComparisonType, ComparisonFunction> funcMap = {
 
 std::pair<Result, std::optional<z3::expr>> CombineResults(z3::expr condition, Result lResult, std::optional<z3::expr> lExpr, Result rResult, std::optional<z3::expr> rExpr)
 {
-    std::cout<<"Combining results"<<std::endl;
     if(lResult == rResult && lResult != Result::UNKNOWN) {
         return {lResult, std::nullopt};
     }
@@ -199,11 +190,7 @@ std::pair<Result, std::optional<z3::expr>> CombineResults(z3::expr condition, Re
 
 std::pair<Result, std::optional<z3::expr>> Compare(ComparisonType type, SymValue *lv, SymValue *rv, FlowNode *node, std::optional<z3::expr> assumptions)
 {
-    std::cout<<"Running compare"<<std::endl;
-    std::cout<<"LV: "<<toString(lv)<<std::endl;
-    std::cout<<"RV: "<<toString(rv)<<std::endl;
     if(lv->get_kind() == SymValue::Kind::CONDITIONAL) {
-        std::cout<<"Recursing on left conditional"<<std::endl;
         CondSymValue* condSymValue = static_cast<CondSymValue*>(lv);
         z3::expr condition = condSymValue->get_condition();
         auto [lResult, lExpr] = Compare(type, condSymValue->if_true(), rv, node, assumptions.has_value() ? *assumptions && condition : condition);
@@ -212,15 +199,12 @@ std::pair<Result, std::optional<z3::expr>> Compare(ComparisonType type, SymValue
     }
 
     if(rv->get_kind() == SymValue::Kind::CONDITIONAL) {
-        std::cout<<"Recursing on right conditional"<<std::endl;
         CondSymValue* condSymValue = static_cast<CondSymValue*>(rv);
         z3::expr condition = condSymValue->get_condition();
         auto [lResult, lExpr] = Compare(type, lv, condSymValue->if_true(), node, assumptions.has_value() ? *assumptions && condition : condition);
         auto [rResult, rExpr] = Compare(type, lv, condSymValue->if_false(), node, assumptions.has_value() ? *assumptions && !condition : !condition);
         return CombineResults(condition, lResult, lExpr, rResult, rExpr);
     }
-
-    std::cout<<"Comparing base case"<<std::endl;
 
     return funcMap[type](lv, rv, node, assumptions);
 }
@@ -238,7 +222,6 @@ std::optional<z3::expr> CreateExpr(SymValue *v, z3::context &c)
     }
     switch(v->get_kind()) {
     case SymValue::Kind::CONDITIONAL: {
-        std::cout<<"Creating conditional expr"<<std::endl;
         auto condValue = static_cast<CondSymValue*>(v);
         //std::cout<<"Cast"<<std::endl;
         //std::cout<<"Creating expr for "<<toString(condValue->if_true())<<std::endl;

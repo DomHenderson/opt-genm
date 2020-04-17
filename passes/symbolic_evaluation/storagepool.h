@@ -8,6 +8,7 @@
 #include "flownode.h"
 #include "frame.h"
 #include "symvalue.h"
+#include "utilities.h"
 
 //This allows persist to be used inline in an initialisation without having 
 //to declare the pointer as a base pointer
@@ -28,7 +29,7 @@ public:
     void remove(T* ptr) {
         auto iter = pool.find(ptr);
         if(iter == pool.end()) {
-            std::cout<<"WARNING: attempting to delete pointer which wasn't persisted";
+            LogWarning<<"attempting to delete pointer which wasn't persisted";
         } else {
             pool.erase(iter);
         }

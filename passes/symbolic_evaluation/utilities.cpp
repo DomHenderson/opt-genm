@@ -563,4 +563,4 @@ Logger LogFlow = Logger(5);
 Logger LogTrace = Logger(10);
 Logger LogDetail = Logger(20);
 
-unsigned Logger::cutoff = 5;
+unsigned Logger::cutoff = 0;
